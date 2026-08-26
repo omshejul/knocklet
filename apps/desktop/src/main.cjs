@@ -165,8 +165,13 @@ function createWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle("K");
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "menuTemplate.png")
+    : path.join(__dirname, "../assets/menuTemplate.png");
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) throw new Error(`Menu icon could not be loaded from ${iconPath}`);
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
   tray.setToolTip("Knocklet");
   tray.setContextMenu(
     Menu.buildFromTemplate([

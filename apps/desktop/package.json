@@ -31,10 +31,19 @@
       {
         "from": "runtime-dist/knocklet-runtime",
         "to": "runtime"
+      },
+      {
+        "from": "assets",
+        "to": ".",
+        "filter": [
+          "menuTemplate.png",
+          "menuTemplate@2x.png"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.business",
+      "icon": "assets/AppIcon.icon",
       "forceCodeSigning": true,
       "hardenedRuntime": true,
       "entitlements": "entitlements.mac.plist",
