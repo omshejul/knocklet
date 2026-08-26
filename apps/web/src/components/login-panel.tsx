@@ -125,7 +125,7 @@ export function LoginPanel() {
       className="grid min-h-screen place-items-center px-5 py-12"
     >
       <div className="min-w-0 w-full max-w-sm">
-        <h1 className="text-3xl font-bold tracking-tight">LinkedIn</h1>
+        <h1 className="text-3xl font-normal tracking-tight">LinkedIn</h1>
         <Card className="mt-6 shadow-xl shadow-black/40">
           <CardContent className="px-4">
             <div className="min-h-6" aria-live="polite" aria-atomic="true">

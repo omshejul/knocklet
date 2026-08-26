@@ -482,7 +482,7 @@ export function ConnectionImportPanel({
                         className="size-6 text-muted-foreground"
                         aria-hidden="true"
                       />
-                      <p className="text-center text-sm font-bold">
+                      <p className="text-center text-sm font-normal">
                         Drop CSV or spreadsheet
                       </p>
                       <p className="text-xs text-muted-foreground">2 MB max</p>
@@ -582,13 +582,13 @@ export function ConnectionImportPanel({
                                   />
                                 </TableHead>
                               ) : null}
-                              <TableHead className="px-3 font-bold">
+                              <TableHead className="px-3 font-normal">
                                 Name
                               </TableHead>
-                              <TableHead className="px-3 font-bold">
+                              <TableHead className="px-3 font-normal">
                                 LinkedIn
                               </TableHead>
-                              <TableHead className="px-3 font-bold">
+                              <TableHead className="px-3 font-normal">
                                 Status
                               </TableHead>
                             </TableRow>
@@ -728,9 +728,9 @@ export function ConnectionImportPanel({
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        <TableHead className="px-3 font-bold">Name</TableHead>
-                        <TableHead className="px-3 font-bold">Status</TableHead>
-                        <TableHead className="px-3 text-right font-bold">
+                        <TableHead className="px-3 font-normal">Name</TableHead>
+                        <TableHead className="px-3 font-normal">Status</TableHead>
+                        <TableHead className="px-3 text-right font-normal">
                           Sent
                         </TableHead>
                       </TableRow>

@@ -227,10 +227,10 @@ export function PeoplePanel() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="px-3 font-bold">Name</TableHead>
-                <TableHead className="px-3 font-bold">Invitation</TableHead>
-                <TableHead className="px-3 font-bold">Message</TableHead>
-                <TableHead className="px-3 text-right font-bold">
+                <TableHead className="px-3 font-normal">Name</TableHead>
+                <TableHead className="px-3 font-normal">Invitation</TableHead>
+                <TableHead className="px-3 font-normal">Message</TableHead>
+                <TableHead className="px-3 text-right font-normal">
                   Last activity
                 </TableHead>
               </TableRow>
