@@ -23,8 +23,8 @@
   --color-linkedin-hover: var(--linkedin-hover);
   --color-success: var(--success);
   --color-danger: var(--danger);
-  --font-sans: var(--font-inter);
-  --font-heading: var(--font-bricolage);
+  --font-sans: var(--font-bellota-text);
+  --font-heading: var(--font-bellota-text);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
