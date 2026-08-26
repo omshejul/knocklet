@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { ConnectionImportPanel } from "@/components/connection-import-panel";
 
 type ApiStatus = "idle" | "waiting" | "authenticated" | "failed";
@@ -118,7 +119,7 @@ export function LoginPanel() {
     return (
       <section
         aria-label="LinkedIn connection requests"
-        className="mt-8 border-t border-border pt-6"
+        className="mt-6"
       >
         <p className="text-sm text-muted-foreground">Signed in.</p>
         <ConnectionImportPanel />
@@ -127,39 +128,40 @@ export function LoginPanel() {
   }
 
   return (
-    <section
-      aria-label="LinkedIn login"
-      className="mt-8 max-w-sm border-t border-border pt-6"
-    >
-      <div className="min-h-6" aria-live="polite" aria-atomic="true">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={status}
-            {...appear(reducedMotion)}
-            className="text-sm text-muted-foreground"
+    <section aria-label="LinkedIn login" className="mt-6 max-w-sm">
+      <Card className="shadow-xl shadow-black/40">
+        <CardContent className="px-4">
+          <div className="min-h-6" aria-live="polite" aria-atomic="true">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={status}
+                {...appear(reducedMotion)}
+                className="text-sm text-muted-foreground"
+              >
+                {viewCopy[status]}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          <Button
+            type="button"
+            size="lg"
+            disabled={isBusy}
+            onClick={startLogin}
+            aria-busy={isBusy}
+            className="mt-5 h-11 w-full text-[0.95rem]"
           >
-            {viewCopy[status]}
-          </motion.div>
-        </AnimatePresence>
-      </div>
+            <span>Log in with LinkedIn</span>
+            {isBusy ? (
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+            ) : null}
+          </Button>
 
-      <Button
-        type="button"
-        size="lg"
-        disabled={isBusy}
-        onClick={startLogin}
-        aria-busy={isBusy}
-        className="mt-5 h-11 w-full rounded-md bg-linkedin px-4 text-[0.95rem] text-white hover:bg-linkedin-hover focus-visible:ring-linkedin/30"
-      >
-        <span>Log in with LinkedIn</span>
-        {isBusy ? (
-          <LoaderCircle className="animate-spin" aria-hidden="true" />
-        ) : null}
-      </Button>
-
-      <p className="mt-3 text-xs text-muted-foreground">
-        Opens Chrome on this Mac.
-      </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Opens Chrome on this Mac.
+          </p>
+        </CardContent>
+      </Card>
     </section>
   );
 }

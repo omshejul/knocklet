@@ -9,7 +9,7 @@ const bellotaText = Bellota_Text({
 });
 
 export const metadata: Metadata = {
-  title: "LinkedIn CLI sign in",
+  title: "LinkedIn",
   description: "Connect LinkedIn to the local LinkedIn CLI from your browser.",
 };
 
@@ -17,7 +17,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${bellotaText.variable} h-full antialiased`}
+      className={`${bellotaText.variable} dark h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
