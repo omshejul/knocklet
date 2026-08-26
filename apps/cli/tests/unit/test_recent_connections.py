@@ -28,6 +28,31 @@ def test_get_recent_connections_resolves_normalized_profiles():
     ]
 
 
+def test_get_recent_connections_resolves_embedded_profiles():
+    client = object.__new__(LinkedinClient)
+    client._api_get = lambda endpoint: {
+        "data": {
+            "elements": [
+                {
+                    "entityUrn": "urn:li:fsd_connection:(me,akhil)",
+                    "createdAt": 1_725_000_000_000,
+                    "connectedMemberResolutionResult": {
+                        "entityUrn": "urn:li:fsd_profile:akhil",
+                        "publicIdentifier": "akhilkumar-ca",
+                    },
+                }
+            ]
+        }
+    }
+
+    assert client.get_recent_connections() == [
+        {
+            "public_id": "akhilkumar-ca",
+            "connected_at": 1_725_000_000_000,
+        }
+    ]
+
+
 def test_get_recent_connections_stops_at_the_cutoff():
     client = object.__new__(LinkedinClient)
     calls = []
