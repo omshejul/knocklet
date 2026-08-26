@@ -228,7 +228,6 @@ def _send_invitation(work_item: WorkItem, client) -> None:
             error="Already connected.",
             checked_at=checked_at,
         )
-        _queue_message_if_enabled(invitation)
         _succeed(work_item)
         return
     if connection_state != "not_connected":

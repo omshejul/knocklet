@@ -15,6 +15,7 @@ from .connection_imports import (
     ImportFileError,
     ImportNotFound,
 )
+from .outreach import list_people
 
 
 class HealthOut(Schema):
@@ -88,6 +89,23 @@ class ConnectionApprovalIn(Schema):
     row_numbers: list[int]
 
 
+class OutreachPersonOut(Schema):
+    id: str
+    name: str
+    linkedin_url: str
+    public_id: str
+    invitation_status: str
+    invitation_error: str | None
+    invitation_provider_status: int | None
+    sent_at: str | None
+    accepted_at: str | None
+    checked_at: str | None
+    message_status: str
+    message_error: str | None
+    message_sent_at: str | None
+    last_activity_at: str
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -138,6 +156,11 @@ def refresh_connection_acceptance(request):
 @api.get("/automation/status", response=WorkerStatusOut)
 def automation_status(request):
     return work_status()
+
+
+@api.get("/people", response=list[OutreachPersonOut])
+def people(request):
+    return list_people()
 
 
 @api.get(

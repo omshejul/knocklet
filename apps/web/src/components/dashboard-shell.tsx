@@ -1,19 +1,19 @@
 "use client";
 
-import { Clock3, PanelLeftClose, PanelLeftOpen, Send } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Send, Users } from "lucide-react";
 import { useState } from "react";
 
-import {
-  ConnectionImportPanel,
-  type DashboardSection,
-} from "@/components/connection-import-panel";
+import { ConnectionImportPanel } from "@/components/connection-import-panel";
+import { PeoplePanel } from "@/components/people-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const sections = [
   { id: "send" as const, label: "Send requests", icon: Send },
-  { id: "history" as const, label: "History", icon: Clock3 },
+  { id: "people" as const, label: "People", icon: Users },
 ];
+
+type DashboardSection = (typeof sections)[number]["id"];
 
 export function DashboardShell() {
   const [section, setSection] = useState<DashboardSection>("send");
@@ -100,9 +100,13 @@ export function DashboardShell() {
       <main className="min-w-0 px-5 py-8 sm:px-8 md:py-10">
         <div className="mx-auto w-full max-w-5xl">
           <h1 className="text-2xl font-bold tracking-tight">
-            {section === "send" ? "Send requests" : "History"}
+            {section === "send" ? "Send requests" : "People"}
           </h1>
-          <ConnectionImportPanel section={section} />
+          {section === "send" ? (
+            <ConnectionImportPanel section="send" />
+          ) : (
+            <PeoplePanel />
+          )}
         </div>
       </main>
     </div>
