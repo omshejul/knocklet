@@ -107,13 +107,11 @@ export function DashboardShell() {
 
       <main className="min-w-0 px-5 py-8 sm:px-8 md:py-10">
         <div className="mx-auto w-full max-w-5xl">
-          <h1 className="text-2xl font-normal tracking-tight">
-            {section === "send"
-              ? "Send requests"
-              : section === "people"
-                ? "People"
-                : "Messages"}
-          </h1>
+          {section !== "messages" ? (
+            <h1 className="text-2xl font-normal tracking-tight">
+              {section === "send" ? "Send requests" : "People"}
+            </h1>
+          ) : null}
           {section === "send" ? (
             <ConnectionImportPanel section="send" />
           ) : section === "people" ? (

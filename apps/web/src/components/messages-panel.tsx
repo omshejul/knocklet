@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   getTemplateFieldError,
   TemplateFieldEditor,
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 type MessageTemplate = {
   body: string;
   auto_send_enabled: boolean;
+  delay_minutes: number;
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
@@ -25,6 +26,7 @@ export function MessagesPanel() {
   const [body, setBody] = useState("");
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [autoSend, setAutoSend] = useState(false);
+  const [delayMinutes, setDelayMinutes] = useState(5);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -58,6 +60,7 @@ export function MessagesPanel() {
         if (result.template) {
           setBody(result.template.body);
           setAutoSend(result.template.auto_send_enabled);
+          setDelayMinutes(result.template.delay_minutes);
         }
       })
       .catch((loadError: Error) => {
@@ -77,6 +80,10 @@ export function MessagesPanel() {
       setError(fieldError);
       return;
     }
+    if (delayMinutes < 0 || delayMinutes > 10_080) {
+      setError("Delay must be between 0 and 10,080 minutes.");
+      return;
+    }
     setIsSaving(true);
     setConfirmation("");
     setError("");
@@ -88,6 +95,7 @@ export function MessagesPanel() {
           name: "Follow-up",
           body,
           auto_send_enabled: autoSend,
+          delay_minutes: delayMinutes,
         }),
       });
       const data = (await response.json()) as MessageTemplate & { detail?: string };
@@ -96,6 +104,7 @@ export function MessagesPanel() {
       }
       setBody(data.body);
       setAutoSend(data.auto_send_enabled);
+      setDelayMinutes(data.delay_minutes);
       setConfirmation("Template saved.");
     } catch (saveError) {
       setError(
@@ -109,66 +118,95 @@ export function MessagesPanel() {
   const fieldError = getTemplateFieldError(body, fields);
 
   return (
-    <Card className="mt-5 shadow-xl shadow-black/40">
-      <CardContent className="space-y-4 px-4 sm:px-5">
-        <div>
-          <label htmlFor="message-template" className="text-sm font-bold">
-            Follow-up template
-          </label>
-          <TemplateFieldEditor
-            id="message-template"
-            value={body}
-            onChange={setBody}
-            fields={fields}
-            disabled={isLoading || isSaving}
-          />
-          <p
-            className={cn(
-              "mt-1.5 text-xs text-muted-foreground",
-              fieldError && "text-destructive",
-            )}
-          >
-            {fieldError || "Type { to insert a field. Applies to requests approved after saving."}
-          </p>
-        </div>
-
+    <>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-normal tracking-tight">Messages</h1>
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
-          <Checkbox
+          <span className="text-right">Send automatically after acceptance</span>
+          <Switch
             checked={autoSend}
             onCheckedChange={setAutoSend}
             disabled={isLoading || isSaving}
-            aria-label="Send automatically after acceptance"
           />
-          Send automatically after acceptance
         </label>
+      </div>
 
-        {confirmation ? (
-          <p className="text-sm text-success" role="status" aria-live="polite">
-            {confirmation}
-          </p>
-        ) : null}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+      <Card className="mt-5 shadow-xl shadow-black/40">
+        <CardContent className="space-y-4 px-4 sm:px-5">
+          <div>
+            <label htmlFor="message-template" className="text-sm font-bold">
+              Follow-up template
+            </label>
+            <TemplateFieldEditor
+              id="message-template"
+              value={body}
+              onChange={setBody}
+              fields={fields}
+              disabled={isLoading || isSaving}
+            />
+            <p
+              className={cn(
+                "mt-1.5 text-xs text-muted-foreground",
+                fieldError && "text-destructive",
+              )}
+            >
+              {fieldError ||
+                "Type { to insert a field. Applies to requests approved after saving."}
+            </p>
+          </div>
 
-        <Button
-          type="button"
-          onClick={saveTemplate}
-          disabled={
-            isLoading ||
-            isSaving ||
-            body.trim().length === 0 ||
-            Boolean(fieldError)
-          }
-          aria-busy={isSaving}
-          className="min-h-11"
-        >
-          Save template
-          {isSaving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : null}
-        </Button>
-      </CardContent>
-    </Card>
+          <div>
+            <label className="block text-sm font-bold">
+              Send after acceptance
+              <span className="mt-2 flex max-w-md items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={10_080}
+                  value={delayMinutes}
+                  onChange={(event) =>
+                    setDelayMinutes(Number(event.target.value))
+                  }
+                  disabled={isLoading || isSaving}
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-base font-normal tabular-nums outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+                <span className="text-sm font-normal text-muted-foreground">
+                  minutes
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {confirmation ? (
+            <p className="text-sm text-success" role="status" aria-live="polite">
+              {confirmation}
+            </p>
+          ) : null}
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <Button
+            type="button"
+            onClick={saveTemplate}
+            disabled={
+              isLoading ||
+              isSaving ||
+              body.trim().length === 0 ||
+              Boolean(fieldError)
+            }
+            aria-busy={isSaving}
+            className="min-h-11"
+          >
+            Save template
+            {isSaving ? (
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+            ) : null}
+          </Button>
+        </CardContent>
+      </Card>
+    </>
   );
 }
