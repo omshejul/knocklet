@@ -1,12 +1,14 @@
 import csv
 import io
 import threading
-from copy import deepcopy
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import unquote, urlparse
-from uuid import uuid4
+
+from django.db import close_old_connections, transaction
+from django.utils import timezone
+
+from .models import ConnectionImport, ConnectionRequest
 
 
 MAX_CSV_BYTES = 2 * 1024 * 1024
@@ -25,8 +27,8 @@ class ImportConflict(Exception):
     pass
 
 
-@dataclass
-class ImportedPerson:
+@dataclass(frozen=True)
+class ParsedPerson:
     row_number: int
     name: str
     linkedin_url: str
@@ -35,18 +37,10 @@ class ImportedPerson:
     error: str | None = None
 
 
-@dataclass
-class ConnectionImport:
-    id: str
+@dataclass(frozen=True)
+class ParsedImport:
     filename: str
-    people: list[ImportedPerson]
-    status: str = "awaiting_approval"
-    created_at: str = field(default_factory=lambda: _now())
-    completed_at: str | None = None
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    people: list[ParsedPerson]
 
 
 def _normalize_header(value: str) -> str:
@@ -87,7 +81,7 @@ def _public_id(linkedin_url: str) -> str | None:
     return public_id or None
 
 
-def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
+def parse_clay_csv(data: bytes, filename: str) -> ParsedImport:
     if len(data) > MAX_CSV_BYTES:
         raise CsvImportError("CSV must be smaller than 2 MB.")
 
@@ -109,7 +103,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
     first_name_header = _find_header(headers, {"firstname", "first"})
     last_name_header = _find_header(headers, {"lastname", "last"})
 
-    people: list[ImportedPerson] = []
+    people: list[ParsedPerson] = []
     seen_public_ids: set[str] = set()
     for row_number, row in enumerate(reader, start=2):
         if len(people) >= MAX_CSV_ROWS:
@@ -133,7 +127,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
 
         if public_id is None:
             people.append(
-                ImportedPerson(
+                ParsedPerson(
                     row_number=row_number,
                     name=full_name or "Unknown person",
                     linkedin_url=linkedin_url,
@@ -146,7 +140,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
 
         if public_id.casefold() in seen_public_ids:
             people.append(
-                ImportedPerson(
+                ParsedPerson(
                     row_number=row_number,
                     name=full_name or public_id,
                     linkedin_url=linkedin_url,
@@ -159,7 +153,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
 
         seen_public_ids.add(public_id.casefold())
         people.append(
-            ImportedPerson(
+            ParsedPerson(
                 row_number=row_number,
                 name=full_name or public_id,
                 linkedin_url=linkedin_url,
@@ -171,7 +165,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ConnectionImport:
     if not people:
         raise CsvImportError("CSV has no people.")
 
-    return ConnectionImport(id=str(uuid4()), filename=filename, people=people)
+    return ParsedImport(filename=filename, people=people)
 
 
 ClientFactory = Callable[[], object]
@@ -180,7 +174,6 @@ ClientFactory = Callable[[], object]
 class ConnectionImportStore:
     def __init__(self, client_factory: ClientFactory | None = None) -> None:
         self.client_factory = client_factory or self._get_client
-        self._imports: dict[str, ConnectionImport] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._lock = threading.Lock()
 
@@ -191,109 +184,213 @@ class ConnectionImportStore:
         return get_client()
 
     def create(self, data: bytes, filename: str) -> dict:
-        connection_import = parse_clay_csv(data, filename)
-        with self._lock:
-            self._imports[connection_import.id] = connection_import
-        return self._snapshot(connection_import)
+        parsed = parse_clay_csv(data, filename)
+        ready_public_ids = [
+            person.public_id for person in parsed.people if person.status == "ready"
+        ]
+        previously_sent = set(
+            ConnectionRequest.objects.filter(
+                public_id__in=ready_public_ids,
+                status__in=[
+                    ConnectionRequest.Status.SENDING,
+                    ConnectionRequest.Status.SENT,
+                    ConnectionRequest.Status.ACCEPTED,
+                ],
+            ).values_list("public_id", flat=True)
+        )
+
+        with transaction.atomic():
+            connection_import = ConnectionImport.objects.create(
+                filename=parsed.filename
+            )
+            ConnectionRequest.objects.bulk_create(
+                [
+                    ConnectionRequest(
+                        connection_import=connection_import,
+                        row_number=person.row_number,
+                        name=person.name,
+                        linkedin_url=person.linkedin_url,
+                        public_id=person.public_id,
+                        status=(
+                            ConnectionRequest.Status.DUPLICATE
+                            if person.public_id in previously_sent
+                            and person.status == "ready"
+                            else person.status
+                        ),
+                        error=(
+                            "Connection request was already sent."
+                            if person.public_id in previously_sent
+                            and person.status == "ready"
+                            else person.error or ""
+                        ),
+                    )
+                    for person in parsed.people
+                ]
+            )
+        return self.get(str(connection_import.id))
 
     def get(self, import_id: str) -> dict:
-        with self._lock:
-            connection_import = self._imports.get(import_id)
-            if connection_import is None:
-                raise ImportNotFound
-            return self._snapshot(connection_import)
+        try:
+            connection_import = ConnectionImport.objects.prefetch_related(
+                "requests"
+            ).get(pk=import_id)
+        except (ConnectionImport.DoesNotExist, ValueError):
+            raise ImportNotFound from None
+        return self._snapshot(connection_import)
 
     def approve(self, import_id: str) -> dict:
-        with self._lock:
-            connection_import = self._imports.get(import_id)
-            if connection_import is None:
-                raise ImportNotFound
-            if connection_import.status != "awaiting_approval":
-                raise ImportConflict
-            if not any(person.status == "ready" for person in connection_import.people):
+        with transaction.atomic():
+            try:
+                connection_import = ConnectionImport.objects.select_for_update().get(
+                    pk=import_id
+                )
+            except (ConnectionImport.DoesNotExist, ValueError):
+                raise ImportNotFound from None
+            if connection_import.status != ConnectionImport.Status.AWAITING_APPROVAL:
                 raise ImportConflict
 
-            connection_import.status = "sending"
-            thread = threading.Thread(
-                target=self._send_requests,
-                args=(import_id,),
-                daemon=True,
+            ready_ids = list(
+                connection_import.requests.filter(
+                    status=ConnectionRequest.Status.READY
+                ).values_list("id", flat=True)
             )
+            if not ready_ids:
+                raise ImportConflict
+
+            connection_import.status = ConnectionImport.Status.SENDING
+            connection_import.approved_at = timezone.now()
+            connection_import.save(update_fields=["status", "approved_at"])
+
+        thread = threading.Thread(
+            target=self._send_requests,
+            args=(str(connection_import.id), ready_ids),
+            daemon=True,
+        )
+        with self._lock:
             self._threads[import_id] = thread
-            snapshot = self._snapshot(connection_import)
 
         thread.start()
-        return snapshot
+        return self.get(import_id)
 
     def wait(self, import_id: str, timeout: float = 5) -> dict:
-        thread = self._threads.get(import_id)
+        with self._lock:
+            thread = self._threads.get(import_id)
         if thread is not None:
             thread.join(timeout)
         return self.get(import_id)
 
-    def _send_requests(self, import_id: str) -> None:
+    def _send_requests(self, import_id: str, request_ids: list[int]) -> None:
+        close_old_connections()
         try:
             client = self.client_factory()
-        except BaseException:
+        except Exception:
             self._fail_remaining(import_id, "LinkedIn session could not be opened.")
             return
 
-        with self._lock:
-            ready_indexes = [
-                index
-                for index, person in enumerate(self._imports[import_id].people)
-                if person.status == "ready"
-            ]
-
-        for index in ready_indexes:
-            with self._lock:
-                person = self._imports[import_id].people[index]
-                person.status = "sending"
-                public_id = person.public_id
+        for request_id in request_ids:
+            connection_request = ConnectionRequest.objects.get(pk=request_id)
+            connection_request.status = ConnectionRequest.Status.SENDING
+            connection_request.save(update_fields=["status"])
 
             try:
-                result = client.add_connection(profile_public_id=public_id)
+                result = client.add_connection(
+                    profile_public_id=connection_request.public_id
+                )
                 response_status = int((result or {}).get("status", 0))
                 sent = 200 <= response_status < 300
-                error = None if sent else f"LinkedIn returned status {response_status or 'unknown'}."
-            except BaseException as request_error:
+                error = (
+                    ""
+                    if sent
+                    else f"LinkedIn returned status {response_status or 'unknown'}."
+                )
+            except Exception as request_error:
                 sent = False
+                response_status = None
                 error = str(request_error) or "Request failed."
 
-            with self._lock:
-                person = self._imports[import_id].people[index]
-                person.status = "sent" if sent else "failed"
-                person.error = error
+            connection_request.status = (
+                ConnectionRequest.Status.SENT
+                if sent
+                else ConnectionRequest.Status.FAILED
+            )
+            connection_request.error = error
+            connection_request.provider_status = response_status
+            connection_request.sent_at = timezone.now() if sent else None
+            connection_request.save(
+                update_fields=[
+                    "status",
+                    "error",
+                    "provider_status",
+                    "sent_at",
+                ]
+            )
 
-        with self._lock:
-            connection_import = self._imports[import_id]
-            connection_import.status = "complete"
-            connection_import.completed_at = _now()
+        ConnectionImport.objects.filter(pk=import_id).update(
+            status=ConnectionImport.Status.COMPLETE,
+            completed_at=timezone.now(),
+        )
+        close_old_connections()
 
     def _fail_remaining(self, import_id: str, error: str) -> None:
-        with self._lock:
-            connection_import = self._imports[import_id]
-            for person in connection_import.people:
-                if person.status == "ready":
-                    person.status = "failed"
-                    person.error = error
-            connection_import.status = "complete"
-            connection_import.completed_at = _now()
+        ConnectionRequest.objects.filter(
+            connection_import_id=import_id,
+            status__in=[
+                ConnectionRequest.Status.READY,
+                ConnectionRequest.Status.SENDING,
+            ],
+        ).update(status=ConnectionRequest.Status.FAILED, error=error)
+        ConnectionImport.objects.filter(pk=import_id).update(
+            status=ConnectionImport.Status.COMPLETE,
+            completed_at=timezone.now(),
+        )
+        close_old_connections()
 
     @staticmethod
     def _snapshot(connection_import: ConnectionImport) -> dict:
-        people = [asdict(person) for person in deepcopy(connection_import.people)]
+        people = [
+            {
+                "row_number": request.row_number,
+                "name": request.name,
+                "linkedin_url": request.linkedin_url,
+                "public_id": request.public_id,
+                "status": request.status,
+                "error": request.error or None,
+                "provider_status": request.provider_status,
+                "sent_at": request.sent_at.isoformat() if request.sent_at else None,
+                "accepted_at": (
+                    request.accepted_at.isoformat() if request.accepted_at else None
+                ),
+                "checked_at": (
+                    request.checked_at.isoformat() if request.checked_at else None
+                ),
+            }
+            for request in connection_import.requests.all()
+        ]
         return {
-            "id": connection_import.id,
+            "id": str(connection_import.id),
             "filename": connection_import.filename,
             "status": connection_import.status,
             "people": people,
             "ready_count": sum(person["status"] == "ready" for person in people),
-            "sent_count": sum(person["status"] == "sent" for person in people),
+            "sent_count": sum(
+                person["status"] in {"sent", "accepted"} for person in people
+            ),
+            "accepted_count": sum(
+                person["status"] == "accepted" for person in people
+            ),
             "failed_count": sum(person["status"] == "failed" for person in people),
             "skipped_count": sum(
                 person["status"] in {"invalid", "duplicate"} for person in people
             ),
-            "created_at": connection_import.created_at,
-            "completed_at": connection_import.completed_at,
+            "created_at": connection_import.created_at.isoformat(),
+            "approved_at": (
+                connection_import.approved_at.isoformat()
+                if connection_import.approved_at
+                else None
+            ),
+            "completed_at": (
+                connection_import.completed_at.isoformat()
+                if connection_import.completed_at
+                else None
+            ),
         }

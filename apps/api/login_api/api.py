@@ -30,6 +30,10 @@ class PersonOut(Schema):
     public_id: str
     status: str
     error: str | None
+    provider_status: int | None
+    sent_at: str | None
+    accepted_at: str | None
+    checked_at: str | None
 
 
 class ConnectionImportOut(Schema):
@@ -39,9 +43,11 @@ class ConnectionImportOut(Schema):
     people: list[PersonOut]
     ready_count: int
     sent_count: int
+    accepted_count: int
     failed_count: int
     skipped_count: int
     created_at: str
+    approved_at: str | None
     completed_at: str | None
 
 

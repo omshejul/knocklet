@@ -1,4 +1,4 @@
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 from login_api.connection_imports import ConnectionImportStore, parse_clay_csv
 
@@ -12,7 +12,7 @@ class FakeLinkedInClient:
         return {"status": 201}
 
 
-class ConnectionImportTests(SimpleTestCase):
+class ConnectionImportParsingTests(SimpleTestCase):
     def test_parses_common_clay_people_columns(self):
         connection_import = parse_clay_csv(
             b"Name,First Name,Last Name,LinkedIn URL\nAda Lovelace,Ada,Lovelace,https://www.linkedin.com/in/ada-lovelace/\n",
@@ -35,6 +35,8 @@ class ConnectionImportTests(SimpleTestCase):
             "invalid",
         ]
 
+
+class ConnectionImportPersistenceTests(TransactionTestCase):
     def test_approval_sends_only_ready_people(self):
         client = FakeLinkedInClient()
         store = ConnectionImportStore(client_factory=lambda: client)
@@ -50,3 +52,32 @@ class ConnectionImportTests(SimpleTestCase):
         assert completed["status"] == "complete"
         assert completed["sent_count"] == 1
         assert completed["skipped_count"] == 1
+
+    def test_import_survives_store_restart(self):
+        connection_import = ConnectionImportStore().create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "people.csv",
+        )
+
+        loaded = ConnectionImportStore().get(connection_import["id"])
+
+        assert loaded["filename"] == "people.csv"
+        assert loaded["people"][0]["public_id"] == "ada"
+
+    def test_marks_a_previously_sent_profile_as_duplicate(self):
+        client = FakeLinkedInClient()
+        store = ConnectionImportStore(client_factory=lambda: client)
+        first_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "first.csv",
+        )
+        store.approve(first_import["id"])
+        store.wait(first_import["id"])
+
+        second_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "second.csv",
+        )
+
+        assert second_import["people"][0]["status"] == "duplicate"
+        assert second_import["skipped_count"] == 1

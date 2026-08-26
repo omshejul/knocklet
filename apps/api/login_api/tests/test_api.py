@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase
+from django.test import TestCase
 
 from login_api.cli_login import LoginSnapshot, LoginState
 
@@ -15,7 +15,7 @@ def snapshot(state: LoginState) -> LoginSnapshot:
     )
 
 
-class LoginApiTests(SimpleTestCase):
+class LoginApiTests(TestCase):
     def test_health(self):
         response = self.client.get("/api/health")
 
