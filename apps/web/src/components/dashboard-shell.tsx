@@ -50,7 +50,7 @@ export function DashboardShell() {
                 isCollapsed && "md:hidden",
               )}
             >
-              LinkedIn
+              Knocklet
             </p>
             <Button
               type="button"

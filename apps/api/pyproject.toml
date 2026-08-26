@@ -1,7 +1,7 @@
 [project]
 name = "linkedin-api"
 version = "0.1.0"
-description = "Local HTTP API for LinkedIn CLI"
+description = "Local HTTP API for Knocklet"
 requires-python = ">=3.11"
 dependencies = [
   "django>=5.2,<6",

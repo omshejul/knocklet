@@ -1,6 +1,6 @@
-# LinkedIn CLI monorepo
+# Knocklet
 
-A local web interface for the LinkedIn CLI. It supports browser login, reviewed CSV batches, and invitation history.
+Knocklet is a local LinkedIn outreach app. It supports browser login, reviewed file imports, invitation history, and follow-up messages.
 
 The session cookie stays in `~/.linkedin-cli/cookies.json`. Invitation data stays in a local SQLite database. The API never returns cookie values to the frontend.
 

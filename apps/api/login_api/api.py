@@ -144,7 +144,7 @@ class MessageTemplateFieldOut(Schema):
     placeholder: str
 
 
-api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
+api = NinjaAPI(title="Knocklet local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
 

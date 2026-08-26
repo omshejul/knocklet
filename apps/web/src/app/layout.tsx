@@ -9,8 +9,8 @@ const atkinsonHyperlegible = Atkinson_Hyperlegible({
 });
 
 export const metadata: Metadata = {
-  title: "LinkedIn",
-  description: "Connect LinkedIn to the local LinkedIn CLI from your browser.",
+  title: "Knocklet",
+  description: "Review and send LinkedIn outreach from your browser.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,6 +1,6 @@
-# LinkedIn Outreach
+# Knocklet
 
-This context describes people imported for LinkedIn outreach and the actions taken for them.
+Knocklet imports people for LinkedIn outreach and records the actions taken for them.
 
 ## Language
 
