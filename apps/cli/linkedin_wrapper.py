@@ -730,6 +730,74 @@ class LinkedinClient:
             start += len(page_results)
         return results
 
+    def get_recent_connections(self, max_results=200, since_ms=None) -> list:
+        """Return the current user's newest first-degree connections."""
+        results = []
+        seen_public_ids = set()
+        start = 0
+        page_size = 40
+
+        while start < max_results:
+            count = min(page_size, max_results - start)
+            data = self._api_get(
+                "/relationships/dash/connections"
+                f"?count={count}"
+                "&decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16"
+                "&q=search"
+                f"&start={start}"
+                "&sortType=RECENTLY_ADDED"
+            )
+            root = data.get("data", data)
+            included = data.get("included", [])
+            index = {
+                item.get("entityUrn"): item
+                for item in included
+                if item.get("entityUrn")
+            }
+            references = root.get("*elements") or root.get("elements") or []
+            connections = [
+                index.get(reference, reference)
+                if isinstance(reference, str)
+                else reference
+                for reference in references
+            ]
+
+            oldest_created_at = None
+            for connection in connections:
+                if not isinstance(connection, dict):
+                    continue
+                created_at = connection.get("createdAt")
+                if isinstance(created_at, int):
+                    oldest_created_at = (
+                        created_at
+                        if oldest_created_at is None
+                        else min(oldest_created_at, created_at)
+                    )
+
+                profile_reference = connection.get(
+                    "*connectedMemberResolutionResult"
+                )
+                profile = index.get(profile_reference, {})
+                public_id = profile.get("publicIdentifier", "")
+                if public_id and public_id.casefold() not in seen_public_ids:
+                    seen_public_ids.add(public_id.casefold())
+                    results.append(
+                        {
+                            "public_id": public_id,
+                            "connected_at": created_at,
+                        }
+                    )
+
+            start += len(references)
+            if len(references) < count:
+                break
+            if since_ms is not None and (
+                oldest_created_at is None or oldest_created_at <= since_ms
+            ):
+                break
+
+        return results
+
     def get_profile_experiences(self, public_id: str = None, urn_id: str = None) -> list:
         """Get work experiences of a profile by scraping the experience section."""
         profile_id = public_id or urn_id
