@@ -8,7 +8,9 @@
   "scripts": {
     "predist": "install-electron --no",
     "start": "electron .",
-    "dist": "electron-builder --mac dmg --arm64 --publish never"
+    "dist": "electron-builder --mac dmg --arm64 --publish never",
+    "test": "node --test tests/*.test.cjs",
+    "test:tray-smoke": "electron tests/tray-smoke.cjs"
   },
   "devDependencies": {
     "electron": "44.0.0",
@@ -43,6 +45,10 @@
     ],
     "mac": {
       "category": "public.app-category.business",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHighResolutionCapable": true
+      },
       "icon": "assets/AppIcon.icon",
       "forceCodeSigning": true,
       "hardenedRuntime": true,

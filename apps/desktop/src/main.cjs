@@ -3,6 +3,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { createMenuTray } = require("./menu-tray.cjs");
 
 const API_ADDRESS = "127.0.0.1:47138";
 const API_URL = `http://${API_ADDRESS}/api/health`;
@@ -164,31 +165,19 @@ function createWindow() {
   mainWindow.loadURL(WEB_URL).catch((error) => stopAfterRuntimeFailure("web", error));
 }
 
-function createTray() {
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, "menuTemplate.png")
-    : path.join(__dirname, "../assets/menuTemplate.png");
-  const icon = nativeImage.createFromPath(iconPath);
-  if (icon.isEmpty()) throw new Error(`Menu icon could not be loaded from ${iconPath}`);
-  icon.setTemplateImage(true);
-  tray = new Tray(icon);
-  tray.setToolTip("Knocklet");
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: "Open Knocklet", click: showWindow },
-      { type: "separator" },
-      {
-        label: "Quit Knocklet",
-        click: () => {
-          quitting = true;
-          app.quit();
-        },
-      },
-    ]),
-  );
-}
-
 async function start() {
+  tray = createMenuTray({
+    app,
+    Menu,
+    nativeImage,
+    Tray,
+    onOpen: showWindow,
+    onQuit: () => {
+      quitting = true;
+      app.quit();
+    },
+  });
+
   const runtimeDirectory = packagedPath("runtime");
   const runtime = path.join(runtimeDirectory, "knocklet-runtime");
   const webRoot = packagedPath("web");
@@ -204,7 +193,6 @@ async function start() {
   webServer = await startStaticServer(webRoot);
   await waitForApi();
   createWindow();
-  createTray();
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -219,9 +207,14 @@ if (!app.requestSingleInstanceLock()) {
     stopRuntime(workerProcess);
   });
   app.on("window-all-closed", () => {});
-  app.whenReady().then(start).catch((error) => {
-    dialog.showErrorBox("Knocklet could not start", error.message);
-    quitting = true;
-    app.quit();
-  });
+  app.whenReady()
+    .then(() => {
+      if (process.platform === "darwin") app.setActivationPolicy("accessory");
+      return start();
+    })
+    .catch((error) => {
+      dialog.showErrorBox("Knocklet could not start", error.message);
+      quitting = true;
+      app.quit();
+    });
 }
