@@ -4,7 +4,6 @@ import { ExternalLink, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -15,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StatusPill } from "@/components/ui/status-pill";
 import { cn } from "@/lib/utils";
 
 type Person = {
@@ -276,17 +276,7 @@ export function PeoplePanel() {
 function State({ status, error }: { status: string; error: string | null }) {
   return (
     <div className="flex flex-col items-start gap-1.5">
-      <Badge
-        variant={status === "failed" ? "destructive" : "outline"}
-        className={cn(
-          (status === "accepted" || status === "sent") &&
-            "border-success/30 bg-success/15 text-success",
-          status === "needs_review" &&
-            "border-amber-500/30 bg-amber-500/10 text-amber-300",
-        )}
-      >
-        {status.replaceAll("_", " ")}
-      </Badge>
+      <StatusPill status={status} />
       {error ? (
         <details className="max-w-xs text-xs text-muted-foreground">
           <summary className="cursor-pointer">Details</summary>

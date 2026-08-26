@@ -10,7 +10,6 @@ import {
 import { FormEvent, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StatusPill } from "@/components/ui/status-pill";
 
 type PersonStatus =
   | "ready"
@@ -626,7 +626,7 @@ export function ConnectionImportPanel({
                                 </TableCell>
                                 <TableCell className="px-3">
                                   <div className="flex max-w-sm flex-col items-start gap-1.5">
-                                    <StatusBadge status={person.status} />
+                                    <StatusPill status={person.status} />
                                     {person.status === "failed" &&
                                     person.error ? (
                                       <span className="whitespace-normal text-xs leading-4 text-destructive">
@@ -741,7 +741,7 @@ export function ConnectionImportPanel({
                           <TableCell className="px-3">{person.name}</TableCell>
                           <TableCell className="px-3">
                             <div className="flex max-w-sm flex-col items-start gap-1.5">
-                              <StatusBadge status={person.status} />
+                              <StatusPill status={person.status} />
                               {person.status === "failed" && person.error ? (
                                 <span className="whitespace-normal text-xs leading-4 text-destructive">
                                   {person.error}
@@ -768,31 +768,6 @@ export function ConnectionImportPanel({
       )}
     </AnimatePresence>
   );
-}
-
-function StatusBadge({ status }: { status: PersonStatus }) {
-  if (status === "failed" || status === "invalid") {
-    return <Badge variant="destructive">{status}</Badge>;
-  }
-  if (status === "accepted" || status === "connected") {
-    return (
-      <Badge className="border-success/30 bg-success/15 text-success">
-        {status}
-      </Badge>
-    );
-  }
-  if (status === "checking" || status === "sending") {
-    return (
-      <Badge variant="secondary">
-        <LoaderCircle className="animate-spin" aria-hidden="true" />
-        {status}
-      </Badge>
-    );
-  }
-  if (status === "duplicate" || status === "skipped" || status === "pending") {
-    return <Badge variant="outline">{status}</Badge>;
-  }
-  return <Badge variant="secondary">{status}</Badge>;
 }
 
 function summary(connectionImport: ConnectionImport) {
