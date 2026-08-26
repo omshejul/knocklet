@@ -76,7 +76,7 @@ function createUpdateManager({ updater, currentVersion, enabled, onStateChange }
 
   async function checkForUpdates() {
     if (!enabled) throw new Error("Updates are available only in the installed app.");
-    if (["checking", "downloading"].includes(state.status)) {
+    if (["checking", "downloading", "installing"].includes(state.status)) {
       throw new Error("An update action is already running.");
     }
     publish({ status: "checking", progress: null, error: null });
@@ -107,7 +107,14 @@ function createUpdateManager({ updater, currentVersion, enabled, onStateChange }
     if (state.status !== "downloaded") {
       throw new Error("The update has not finished downloading.");
     }
-    updater.quitAndInstall();
+    publish({ status: "installing", progress: 100, error: null });
+    try {
+      updater.quitAndInstall();
+      return getState();
+    } catch (error) {
+      fail(error);
+      throw error;
+    }
   }
 
   function dispose() {

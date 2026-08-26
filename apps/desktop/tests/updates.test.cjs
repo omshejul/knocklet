@@ -16,6 +16,7 @@ class FakeUpdater extends EventEmitter {
   }
 
   quitAndInstall(...arguments_) {
+    this.onInstall?.();
     this.installArguments = arguments_;
   }
 }
@@ -55,11 +56,20 @@ test("downloads and installs an available update", async () => {
 
   updater.emit("update-available", { version: "0.3.0" });
   await manager.downloadUpdate();
+  let statusDuringInstall;
+  updater.onInstall = () => {
+    statusDuringInstall = manager.getState().status;
+  };
   manager.installUpdate();
 
   assert.equal(states.some((state) => state.progress === 42.4), true);
-  assert.equal(manager.getState().status, "downloaded");
+  assert.equal(statusDuringInstall, "installing");
+  assert.equal(manager.getState().status, "installing");
   assert.deepEqual(updater.installArguments, []);
+  await assert.rejects(
+    manager.checkForUpdates(),
+    /An update action is already running/,
+  );
 });
 
 test("surfaces the exact update error", async () => {

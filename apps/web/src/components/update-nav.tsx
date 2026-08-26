@@ -12,6 +12,7 @@ type UpdateStatus =
   | "available"
   | "downloading"
   | "downloaded"
+  | "installing"
   | "up-to-date"
   | "error"
   | "unavailable";
@@ -75,7 +76,10 @@ export function UpdateNav({
 
   const action = updateAction(state);
   const disabled =
-    isActing || ["checking", "downloading", "unavailable"].includes(state.status);
+    isActing ||
+    ["checking", "downloading", "installing", "unavailable"].includes(
+      state.status,
+    );
 
   async function performAction() {
     const updates = window.knockletUpdates;
@@ -86,6 +90,13 @@ export function UpdateNav({
       return;
     }
     setIsActing(true);
+    if (action.id === "install") {
+      setState((current) =>
+        current
+          ? { ...current, status: "installing", progress: 100, error: null }
+          : current,
+      );
+    }
     try {
       const nextState = await updates[action.id]();
       setState(nextState);
@@ -122,14 +133,20 @@ export function UpdateNav({
         size={collapsed ? "icon" : "sm"}
         variant={state.status === "downloaded" ? "default" : "ghost"}
         disabled={disabled}
-        aria-busy={state.status === "checking" || state.status === "downloading"}
+        aria-busy={
+          state.status === "checking" ||
+          state.status === "downloading" ||
+          state.status === "installing"
+        }
         onClick={() => void performAction()}
         title={collapsed ? action.label : undefined}
         className={cn("mt-2", collapsed ? "size-10" : "w-full justify-start")}
       >
         <ActionIcon
           className={cn(
-            (state.status === "checking" || state.status === "downloading") &&
+            (state.status === "checking" ||
+              state.status === "downloading" ||
+              state.status === "installing") &&
               "animate-spin",
           )}
           aria-hidden="true"
@@ -163,6 +180,13 @@ function updateAction(state: UpdateState) {
   if (state.status === "downloaded") {
     return { id: "install" as const, label: "Restart to update", icon: RotateCcw };
   }
+  if (state.status === "installing") {
+    return {
+      id: "install" as const,
+      label: "Restarting to update",
+      icon: RotateCcw,
+    };
+  }
   if (state.status === "downloading") {
     return {
       id: "download" as const,
@@ -179,6 +203,9 @@ function updateAction(state: UpdateState) {
 function updateStatusLine(state: UpdateState) {
   if (state.error) return state.error;
   if (state.status === "up-to-date") return "Knocklet is up to date.";
+  if (state.status === "installing") {
+    return "Installing update. Knocklet will restart when ready.";
+  }
   if (state.status === "unavailable") return "Updates require the installed app.";
   return "";
 }
