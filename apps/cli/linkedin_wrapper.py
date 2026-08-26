@@ -12,6 +12,7 @@ import threading
 from collections import deque
 from datetime import date
 from http import HTTPStatus
+from urllib.parse import urlencode
 
 from local_paths import local_data_dir
 
@@ -788,10 +789,9 @@ class LinkedinClient:
                         else min(oldest_created_at, created_at)
                     )
 
-                profile_reference = connection.get(
-                    "*connectedMemberResolutionResult"
+                profile = connection.get("connectedMemberResolutionResult") or index.get(
+                    connection.get("*connectedMemberResolutionResult"), {}
                 )
-                profile = index.get(profile_reference, {})
                 public_id = profile.get("publicIdentifier", "")
                 if public_id and public_id.casefold() not in seen_public_ids:
                     seen_public_ids.add(public_id.casefold())
@@ -1119,32 +1119,115 @@ class LinkedinClient:
         return msgs
 
     def send_message(self, message_body: str, conversation_urn_id=None, recipients=None):
-        # Messages require POST - use fetch in browser
         if conversation_urn_id:
             url = f"{VOYAGER_API}/messaging/conversations/{conversation_urn_id}/events"
-        else:
-            url = f"{VOYAGER_API}/messaging/conversations"
+            payload = {"eventCreate": {"value": {"com.linkedin.voyager.messaging.create.MessageCreate": {"body": message_body}}}}
+            script = """
+            const resp = await fetch(arguments[0], {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-RestLi-Protocol-Version': '2.0.0',
+                    'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
+                },
+                credentials: 'include',
+                body: JSON.stringify(arguments[1]),
+            });
+            return {status: resp.status};
+            """
+            return self.driver.execute_script(
+                f"return (async () => {{ {script} }})()", url, payload
+            )
 
-        payload = {"eventCreate": {"value": {"com.linkedin.voyager.messaging.create.MessageCreate": {"body": message_body}}}}
-        if recipients:
-            payload["recipients"] = recipients
+        if not recipients or len(recipients) != 1:
+            raise ValueError("Exactly one LinkedIn message recipient is required.")
 
-        script = """
-        const resp = await fetch(arguments[0], {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-RestLi-Protocol-Version': '2.0.0',
-                'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
-            },
-            credentials: 'include',
-            body: JSON.stringify(arguments[1]),
-        });
-        return {status: resp.status};
-        """
-        return self.driver.execute_script(
-            f"return (async () => {{ {script} }})()", url, payload
+        recipient_urn = recipients[0]
+        recipient_id = recipient_urn.rsplit(":", 1)[-1]
+        compose_query = urlencode(
+            {
+                "profileUrn": recipient_urn,
+                "recipient": recipient_id,
+                "screenContext": "NON_SELF_PROFILE_VIEW",
+                "interop": "msgOverlay",
+            }
         )
+        self._navigate(f"https://www.linkedin.com/messaging/compose/?{compose_query}")
+
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            composer_ready = self.driver.execute_script("""
+            const editor = document.querySelector('[contenteditable="true"][aria-label="Write a message…"]');
+            const send = [...document.querySelectorAll('button')]
+                .find(button => button.innerText.trim() === 'Send');
+            return Boolean(editor && send);
+            """)
+            if composer_ready:
+                break
+            time.sleep(0.25)
+        else:
+            raise RuntimeError("LinkedIn message composer did not load.")
+
+        started_at = self.driver.execute_script("return performance.now();")
+        entered = self.driver.execute_script("""
+        const editor = document.querySelector('[contenteditable="true"][aria-label="Write a message…"]');
+        if (!editor) return false;
+        editor.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, arguments[0]);
+        editor.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: arguments[0],
+        }));
+        return true;
+        """, message_body)
+        if not entered:
+            raise RuntimeError("LinkedIn message text could not be entered.")
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            send_ready = self.driver.execute_script("""
+            const send = [...document.querySelectorAll('button')]
+                .find(button => button.innerText.trim() === 'Send');
+            return Boolean(send && !send.disabled);
+            """)
+            if send_ready:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("LinkedIn did not enable the Send button.")
+
+        clicked = self.driver.execute_script("""
+        const send = [...document.querySelectorAll('button')]
+            .find(button => button.innerText.trim() === 'Send');
+        if (!send || send.disabled) return false;
+        send.click();
+        return true;
+        """)
+        if not clicked:
+            raise RuntimeError("LinkedIn message could not be submitted.")
+
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            response_status = self.driver.execute_script("""
+            const entries = performance.getEntriesByType('resource');
+            for (let index = entries.length - 1; index >= 0; index -= 1) {
+                const entry = entries[index];
+                if (entry.startTime >= arguments[0]
+                    && entry.name.includes('voyagerMessagingDashMessengerMessages?action=createMessage')) {
+                    return entry.responseStatus || null;
+                }
+            }
+            return null;
+            """, started_at)
+            if response_status:
+                if not 200 <= int(response_status) < 300:
+                    raise LinkedinAPIError(int(response_status))
+                return {"status": int(response_status)}
+            time.sleep(0.25)
+
+        raise RuntimeError("LinkedIn did not confirm message delivery.")
 
     def mark_conversation_as_seen(self, conversation_urn_id: str):
         """Mark a conversation as seen."""
