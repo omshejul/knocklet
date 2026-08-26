@@ -14,7 +14,7 @@
     "release:desktop": "apps/desktop/scripts/release-mac.sh",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
-    "test": "uv run --package linkedin-api python apps/api/manage.py test login_api && uv run --package linkedin-cli pytest apps/cli/tests/unit",
+    "test": "uv run --package linkedin-api python apps/api/manage.py test login_api && uv run --package linkedin-cli pytest apps/cli/tests/unit && pnpm --filter @knocklet/desktop test",
     "cli": "uv run --package linkedin-cli linkedin-cli"
   },
   "devDependencies": {
