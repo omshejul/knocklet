@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, Send } from "lucide-react";
+import { Clock3, PanelLeftClose, PanelLeftOpen, Send } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -17,14 +17,54 @@ const sections = [
 
 export function DashboardShell() {
   const [section, setSection] = useState<DashboardSection>("send");
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
+    <div
+      className={cn(
+        "min-h-screen md:grid",
+        isCollapsed
+          ? "md:grid-cols-[4.5rem_minmax(0,1fr)]"
+          : "md:grid-cols-[14rem_minmax(0,1fr)]",
+      )}
+    >
       <aside className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:h-screen md:border-r md:border-b-0">
         <div className="mx-auto flex max-w-5xl flex-col items-stretch gap-3 px-4 py-3 md:h-full md:px-3 md:py-5">
-          <p className="px-2 text-lg font-bold">LinkedIn</p>
+          <div
+            className={cn(
+              "flex items-center",
+              isCollapsed ? "md:justify-center" : "md:justify-between",
+            )}
+          >
+            <p
+              className={cn(
+                "px-2 text-lg font-bold",
+                isCollapsed && "md:hidden",
+              )}
+            >
+              LinkedIn
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsCollapsed((current) => !current)}
+              aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!isCollapsed}
+              aria-controls="dashboard-navigation"
+              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="hidden size-11 md:inline-flex"
+            >
+              {isCollapsed ? (
+                <PanelLeftOpen aria-hidden="true" />
+              ) : (
+                <PanelLeftClose aria-hidden="true" />
+              )}
+            </Button>
+          </div>
 
           <nav
+            id="dashboard-navigation"
             aria-label="Dashboard"
             className="grid grid-cols-2 gap-1 md:mt-2 md:flex md:flex-col"
           >
@@ -38,14 +78,18 @@ export function DashboardShell() {
                   variant="ghost"
                   onClick={() => setSection(item.id)}
                   aria-current={isActive ? "page" : undefined}
+                  title={isCollapsed ? item.label : undefined}
                   className={cn(
                     "min-h-11 justify-start px-3 text-muted-foreground",
+                    isCollapsed && "md:justify-center md:px-0",
                     isActive &&
                       "bg-sidebar-accent text-sidebar-accent-foreground",
                   )}
                 >
                   <Icon aria-hidden="true" />
-                  {item.label}
+                  <span className={cn(isCollapsed && "md:sr-only")}>
+                    {item.label}
+                  </span>
                 </Button>
               );
             })}
