@@ -37,8 +37,8 @@
       "category": "public.app-category.business",
       "forceCodeSigning": true,
       "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
       "minimumSystemVersion": "13.0",
       "signIgnore": [
         "/Contents/Resources/runtime/(?!.*(?:knocklet-runtime|\\.dylib|\\.so)$)",
