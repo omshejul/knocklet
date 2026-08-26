@@ -200,6 +200,8 @@ class ConnectionImportStore:
                     ConnectionRequest.Status.SENDING,
                     ConnectionRequest.Status.SENT,
                     ConnectionRequest.Status.ACCEPTED,
+                    ConnectionRequest.Status.PENDING,
+                    ConnectionRequest.Status.CONNECTED,
                 ],
             ).values_list("public_id", flat=True)
         )
@@ -266,12 +268,12 @@ class ConnectionImportStore:
             if not ready_ids:
                 raise ImportConflict
 
-            connection_import.status = ConnectionImport.Status.SENDING
+            connection_import.status = ConnectionImport.Status.CHECKING
             connection_import.approved_at = timezone.now()
             connection_import.save(update_fields=["status", "approved_at"])
 
         thread = threading.Thread(
-            target=self._send_requests,
+            target=self._check_and_send_requests,
             args=(str(connection_import.id), ready_ids),
             daemon=True,
         )
@@ -351,15 +353,58 @@ class ConnectionImportStore:
             "checked_at": checked_at.isoformat(),
         }
 
-    def _send_requests(self, import_id: str, request_ids: list[int]) -> None:
+    def _check_and_send_requests(self, import_id: str, request_ids: list[int]) -> None:
         close_old_connections()
         try:
             client = self.client_factory()
-        except Exception:
-            self._fail_remaining(import_id, "LinkedIn session could not be opened.")
+            pending_public_ids = client.get_sent_invitation_public_ids()
+        except (Exception, SystemExit):
+            self._fail_remaining(import_id, "LinkedIn status could not be checked.")
             return
 
         for request_id in request_ids:
+            connection_request = ConnectionRequest.objects.get(pk=request_id)
+            connection_request.status = ConnectionRequest.Status.CHECKING
+            connection_request.save(update_fields=["status"])
+
+            checked_at = timezone.now()
+            if connection_request.public_id.casefold() in pending_public_ids:
+                connection_request.status = ConnectionRequest.Status.PENDING
+                connection_request.error = "Connection request is already pending."
+            else:
+                try:
+                    connection_state = client.get_connection_state(
+                        connection_request.public_id
+                    )
+                except Exception:
+                    connection_state = "unknown"
+
+                if connection_state == "connected":
+                    connection_request.status = ConnectionRequest.Status.CONNECTED
+                    connection_request.error = "Already connected."
+                elif connection_state == "not_connected":
+                    connection_request.status = ConnectionRequest.Status.READY
+                    connection_request.error = ""
+                else:
+                    connection_request.status = ConnectionRequest.Status.FAILED
+                    connection_request.error = (
+                        "Connection status could not be confirmed."
+                    )
+
+            connection_request.checked_at = checked_at
+            connection_request.save(update_fields=["status", "error", "checked_at"])
+
+        eligible_ids = list(
+            ConnectionRequest.objects.filter(
+                id__in=request_ids,
+                status=ConnectionRequest.Status.READY,
+            ).values_list("id", flat=True)
+        )
+        ConnectionImport.objects.filter(pk=import_id).update(
+            status=ConnectionImport.Status.SENDING
+        )
+
+        for request_id in eligible_ids:
             connection_request = ConnectionRequest.objects.get(pk=request_id)
             connection_request.status = ConnectionRequest.Status.SENDING
             connection_request.save(update_fields=["status"])
@@ -408,6 +453,7 @@ class ConnectionImportStore:
             connection_import_id=import_id,
             status__in=[
                 ConnectionRequest.Status.READY,
+                ConnectionRequest.Status.CHECKING,
                 ConnectionRequest.Status.SENDING,
             ],
         ).update(status=ConnectionRequest.Status.FAILED, error=error)
@@ -438,6 +484,27 @@ class ConnectionImportStore:
             }
             for request in connection_import.requests.all()
         ]
+        total_count = sum(
+            person["status"] not in {"invalid", "duplicate"} for person in people
+        )
+        checked_count = sum(person["checked_at"] is not None for person in people)
+        processed_count = sum(
+            person["status"]
+            in {"pending", "connected", "sent", "accepted", "failed"}
+            for person in people
+        )
+        if connection_import.status == ConnectionImport.Status.CHECKING:
+            progress_percent = round(
+                checked_count / total_count * 50 if total_count else 50
+            )
+        elif connection_import.status == ConnectionImport.Status.SENDING:
+            progress_percent = round(
+                50 + processed_count / total_count * 50 if total_count else 100
+            )
+        elif connection_import.status == ConnectionImport.Status.COMPLETE:
+            progress_percent = 100
+        else:
+            progress_percent = 0
         return {
             "id": str(connection_import.id),
             "filename": connection_import.filename,
@@ -450,10 +517,22 @@ class ConnectionImportStore:
             "accepted_count": sum(
                 person["status"] == "accepted" for person in people
             ),
+            "pending_count": sum(
+                person["status"] == "pending" for person in people
+            ),
+            "connected_count": sum(
+                person["status"] == "connected" for person in people
+            ),
             "failed_count": sum(person["status"] == "failed" for person in people),
             "skipped_count": sum(
-                person["status"] in {"invalid", "duplicate"} for person in people
+                person["status"]
+                in {"invalid", "duplicate", "pending", "connected"}
+                for person in people
             ),
+            "total_count": total_count,
+            "checked_count": checked_count,
+            "processed_count": processed_count,
+            "progress_percent": progress_percent,
             "created_at": connection_import.created_at.isoformat(),
             "approved_at": (
                 connection_import.approved_at.isoformat()

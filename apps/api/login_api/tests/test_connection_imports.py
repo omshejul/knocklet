@@ -5,8 +5,16 @@ from login_api.models import ConnectionRequest
 
 
 class FakeLinkedInClient:
-    def __init__(self):
+    def __init__(self, pending=None, connection_states=None):
         self.public_ids = []
+        self.pending = pending or set()
+        self.connection_states = connection_states or {}
+
+    def get_sent_invitation_public_ids(self):
+        return self.pending
+
+    def get_connection_state(self, public_id):
+        return self.connection_states.get(public_id, "not_connected")
 
     def add_connection(self, profile_public_id: str):
         self.public_ids.append(profile_public_id)
@@ -63,6 +71,7 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         assert completed["status"] == "complete"
         assert completed["sent_count"] == 1
         assert completed["skipped_count"] == 1
+        assert completed["progress_percent"] == 100
 
     def test_import_survives_store_restart(self):
         connection_import = ConnectionImportStore().create(
@@ -111,3 +120,44 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         assert result["accepted_count"] == 1
         assert ConnectionRequest.objects.get(public_id="ada").status == "accepted"
         assert ConnectionRequest.objects.get(public_id="grace").checked_at is not None
+
+    def test_preflight_skips_pending_and_connected_profiles(self):
+        client = FakeLinkedInClient(
+            pending={"ada"},
+            connection_states={"grace": "connected", "linus": "not_connected"},
+        )
+        store = ConnectionImportStore(client_factory=lambda: client)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\nGrace,https://linkedin.com/in/grace\nLinus,https://linkedin.com/in/linus\n",
+            "people.csv",
+        )
+
+        store.approve(connection_import["id"])
+        completed = store.wait(connection_import["id"])
+
+        assert client.public_ids == ["linus"]
+        assert [person["status"] for person in completed["people"]] == [
+            "pending",
+            "connected",
+            "sent",
+        ]
+        assert completed["pending_count"] == 1
+        assert completed["connected_count"] == 1
+        assert completed["skipped_count"] == 2
+
+    def test_preflight_does_not_send_when_status_is_unknown(self):
+        client = FakeLinkedInClient(connection_states={"ada": "unknown"})
+        store = ConnectionImportStore(client_factory=lambda: client)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "people.csv",
+        )
+
+        store.approve(connection_import["id"])
+        completed = store.wait(connection_import["id"])
+
+        assert client.public_ids == []
+        assert completed["people"][0]["status"] == "failed"
+        assert completed["people"][0]["error"] == (
+            "Connection status could not be confirmed."
+        )

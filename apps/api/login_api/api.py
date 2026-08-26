@@ -45,8 +45,14 @@ class ConnectionImportOut(Schema):
     ready_count: int
     sent_count: int
     accepted_count: int
+    pending_count: int
+    connected_count: int
     failed_count: int
     skipped_count: int
+    total_count: int
+    checked_count: int
+    processed_count: int
+    progress_percent: int
     created_at: str
     approved_at: str | None
     completed_at: str | None
