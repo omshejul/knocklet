@@ -11,6 +11,7 @@
     "dev:worker": "pnpm db:migrate && uv run --package linkedin-api python apps/api/manage.py run_local_worker",
     "dev:web": "pnpm --filter web dev",
     "desktop:start": "pnpm --filter @knocklet/desktop start",
+    "release:desktop": "apps/desktop/scripts/release-mac.sh",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "test": "uv run --package linkedin-api python apps/api/manage.py test login_api && uv run --package linkedin-cli pytest apps/cli/tests/unit",
