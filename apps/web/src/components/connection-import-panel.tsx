@@ -18,6 +18,11 @@ import {
   FileUploadList,
 } from "@/components/ui/file-upload";
 import {
+  Progress,
+  ProgressLabel,
+  ProgressValue,
+} from "@/components/ui/progress";
+import {
   Table,
   TableBody,
   TableCell,
@@ -30,6 +35,9 @@ type PersonStatus =
   | "ready"
   | "invalid"
   | "duplicate"
+  | "checking"
+  | "pending"
+  | "connected"
   | "sending"
   | "sent"
   | "accepted"
@@ -51,13 +59,19 @@ type ImportedPerson = {
 type ConnectionImport = {
   id: string;
   filename: string;
-  status: "awaiting_approval" | "sending" | "complete";
+  status: "awaiting_approval" | "checking" | "sending" | "complete";
   people: ImportedPerson[];
   ready_count: number;
   sent_count: number;
   accepted_count: number;
+  pending_count: number;
+  connected_count: number;
   failed_count: number;
   skipped_count: number;
+  total_count: number;
+  checked_count: number;
+  processed_count: number;
+  progress_percent: number;
   created_at: string;
   approved_at: string | null;
   completed_at: string | null;
@@ -89,6 +103,13 @@ async function fetchImportHistory(): Promise<ConnectionImport[]> {
   return response.json();
 }
 
+function isRunning(connectionImport: ConnectionImport | null) {
+  return (
+    connectionImport?.status === "checking" ||
+    connectionImport?.status === "sending"
+  );
+}
+
 function appear(reduced: boolean | null) {
   return {
     initial: reduced
@@ -113,6 +134,8 @@ export function ConnectionImportPanel() {
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [error, setError] = useState("");
+  const activeImportId = connectionImport?.id;
+  const activeImportStatus = connectionImport?.status;
 
   useEffect(() => {
     let active = true;
@@ -120,6 +143,9 @@ export function ConnectionImportPanel() {
       .then((imports) => {
         if (active) {
           setHistory(imports);
+          setConnectionImport(
+            imports.find((item) => isRunning(item)) ?? null,
+          );
         }
       })
       .catch((historyError: Error) => {
@@ -133,13 +159,16 @@ export function ConnectionImportPanel() {
   }, []);
 
   useEffect(() => {
-    if (connectionImport?.status !== "sending") {
+    if (
+      !activeImportId ||
+      (activeImportStatus !== "checking" && activeImportStatus !== "sending")
+    ) {
       return;
     }
 
     let active = true;
     const interval = window.setInterval(() => {
-      void fetch(apiUrl + "/connections/import/" + connectionImport.id, {
+      void fetch(apiUrl + "/connections/import/" + activeImportId, {
         cache: "no-store",
       })
         .then((response) => {
@@ -165,7 +194,7 @@ export function ConnectionImportPanel() {
       active = false;
       window.clearInterval(interval);
     };
-  }, [connectionImport?.id, connectionImport?.status]);
+  }, [activeImportId, activeImportStatus]);
 
   async function importCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,7 +291,9 @@ export function ConnectionImportPanel() {
       item.people.map((person) => ({ importId: item.id, person })),
     )
     .filter(({ person }) =>
-      ["sending", "sent", "failed", "accepted"].includes(person.status),
+      ["pending", "connected", "sending", "sent", "failed", "accepted"].includes(
+        person.status,
+      ),
     )
     .slice(0, 100);
   const hasPendingAcceptance = activity.some(
@@ -293,7 +324,7 @@ export function ConnectionImportPanel() {
               maxSize={2 * 1024 * 1024}
               label="Clay CSV"
               disabled={
-                isUploading || connectionImport?.status === "sending"
+                isUploading || isRunning(connectionImport)
               }
             >
               {!file ? (
@@ -332,7 +363,7 @@ export function ConnectionImportPanel() {
               type="submit"
               size="lg"
               disabled={
-                !file || isUploading || connectionImport?.status === "sending"
+                !file || isUploading || isRunning(connectionImport)
               }
               className="h-11 w-full"
             >
@@ -348,9 +379,20 @@ export function ConnectionImportPanel() {
 
           {connectionImport ? (
             <motion.div {...appear(reducedMotion)} className="space-y-3">
-              <p className="text-sm text-muted-foreground" aria-live="polite">
-                {summary(connectionImport)}
-              </p>
+              {isRunning(connectionImport) ? (
+                <Progress
+                  value={connectionImport.progress_percent}
+                  aria-label={`${phaseLabel(connectionImport)} progress`}
+                  className="gap-2"
+                >
+                  <ProgressLabel>{summary(connectionImport)}</ProgressLabel>
+                  <ProgressValue />
+                </Progress>
+              ) : (
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  {summary(connectionImport)}
+                </p>
+              )}
 
               <div
                 className="overflow-hidden rounded-xl border"
@@ -461,14 +503,22 @@ function StatusBadge({ status }: { status: PersonStatus }) {
   if (status === "failed" || status === "invalid") {
     return <Badge variant="destructive">{status}</Badge>;
   }
-  if (status === "accepted") {
+  if (status === "accepted" || status === "connected") {
     return (
       <Badge className="border-success/30 bg-success/15 text-success">
         {status}
       </Badge>
     );
   }
-  if (status === "duplicate") {
+  if (status === "checking" || status === "sending") {
+    return (
+      <Badge variant="secondary">
+        <LoaderCircle className="animate-spin" aria-hidden="true" />
+        {status}
+      </Badge>
+    );
+  }
+  if (status === "duplicate" || status === "pending") {
     return <Badge variant="outline">{status}</Badge>;
   }
   return <Badge variant="secondary">{status}</Badge>;
@@ -478,10 +528,17 @@ function summary(connectionImport: ConnectionImport) {
   if (connectionImport.status === "awaiting_approval") {
     return `${connectionImport.ready_count} ready, ${connectionImport.skipped_count} skipped.`;
   }
-  if (connectionImport.status === "sending") {
-    return `Sending. ${connectionImport.sent_count} sent, ${connectionImport.failed_count} failed.`;
+  if (connectionImport.status === "checking") {
+    return `Checking profiles. ${connectionImport.checked_count} of ${connectionImport.total_count} checked.`;
   }
-  return `${connectionImport.sent_count} sent, ${connectionImport.failed_count} failed, ${connectionImport.skipped_count} skipped.`;
+  if (connectionImport.status === "sending") {
+    return `Sending requests. ${connectionImport.processed_count} of ${connectionImport.total_count} complete.`;
+  }
+  return `${connectionImport.sent_count} sent, ${connectionImport.pending_count} pending, ${connectionImport.connected_count} connected, ${connectionImport.failed_count} failed.`;
+}
+
+function phaseLabel(connectionImport: ConnectionImport) {
+  return connectionImport.status === "checking" ? "Checking" : "Sending";
 }
 
 function formatDate(value: string | null) {
