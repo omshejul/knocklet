@@ -3,8 +3,9 @@ import io
 from django.test import SimpleTestCase, TransactionTestCase
 from openpyxl import Workbook
 
+from login_api.automation import enqueue_acceptance_check, run_due_work
 from login_api.connection_imports import ConnectionImportStore, parse_connection_file
-from login_api.models import ConnectionRequest
+from login_api.models import ConnectionRequest, Invitation, WorkItem
 
 
 def _xlsx(rows: list[list[str]]) -> bytes:
@@ -175,14 +176,14 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         store.approve(connection_import["id"])
         store.wait(connection_import["id"])
 
-        result = ConnectionImportStore(
-            client_factory=lambda: FakeAcceptanceClient()
-        ).refresh_acceptance()
+        work_item = enqueue_acceptance_check(force=True)
+        assert work_item is not None
+        run_due_work(lambda: FakeAcceptanceClient())
 
-        assert result["checked_count"] == 2
-        assert result["accepted_count"] == 1
+        assert WorkItem.objects.get(pk=work_item.pk).status == "succeeded"
         assert ConnectionRequest.objects.get(public_id="ada").status == "accepted"
         assert ConnectionRequest.objects.get(public_id="grace").checked_at is not None
+        assert Invitation.objects.get(person__public_id="ada").status == "accepted"
 
     def test_preflight_skips_pending_and_connected_profiles(self):
         client = FakeLinkedInClient(

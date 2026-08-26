@@ -5,8 +5,9 @@
   "packageManager": "pnpm@10.33.4",
   "scripts": {
     "db:migrate": "uv run --package linkedin-api python apps/api/manage.py migrate --noinput",
-    "dev": "pnpm db:migrate && concurrently -n api,web -c yellow,blue \"uv run --package linkedin-api python apps/api/manage.py runserver 127.0.0.1:8000\" \"pnpm --filter web dev\"",
+    "dev": "pnpm db:migrate && concurrently -n api,worker,web -c yellow,magenta,blue \"uv run --package linkedin-api python apps/api/manage.py runserver 127.0.0.1:8000\" \"uv run --package linkedin-api python apps/api/manage.py run_local_worker\" \"pnpm --filter web dev\"",
     "dev:api": "pnpm db:migrate && uv run --package linkedin-api python apps/api/manage.py runserver 127.0.0.1:8000",
+    "dev:worker": "pnpm db:migrate && uv run --package linkedin-api python apps/api/manage.py run_local_worker",
     "dev:web": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",

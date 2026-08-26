@@ -93,6 +93,23 @@ type AcceptanceRefreshResult = {
   checked_at: string;
 };
 
+type AcceptanceRequest = {
+  state: string;
+  work_item_id: string | null;
+  due_at: string | null;
+};
+
+type WorkerStatus = {
+  state: "idle" | "queued" | "working";
+  current: string | null;
+  last_finished_at: string | null;
+  last_work_item_id: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  pending_invitations: number;
+  accepted_invitations: number;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -117,6 +134,27 @@ async function fetchImportHistory(): Promise<ConnectionImport[]> {
     throw new Error("History could not be loaded.");
   }
   return response.json();
+}
+
+async function fetchWorkerStatus(): Promise<WorkerStatus> {
+  const response = await fetch(apiUrl + "/automation/status", {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Worker status could not be loaded.");
+  }
+  return response.json();
+}
+
+function acceptanceResultFromStatus(
+  status: WorkerStatus,
+): AcceptanceRefreshResult {
+  return {
+    checked_count: status.pending_invitations + status.accepted_invitations,
+    accepted_count: status.accepted_invitations,
+    pending_count: status.pending_invitations,
+    checked_at: status.last_finished_at ?? new Date().toISOString(),
+  };
 }
 
 function isRunning(connectionImport: ConnectionImport | null) {
@@ -157,6 +195,7 @@ export function ConnectionImportPanel({
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
+  const [acceptanceActivity, setAcceptanceActivity] = useState("");
   const [acceptanceResult, setAcceptanceResult] =
     useState<AcceptanceRefreshResult | null>(null);
   const [error, setError] = useState("");
@@ -316,9 +355,7 @@ export function ConnectionImportPanel({
       const response = await fetch(apiUrl + "/connections/acceptance/refresh", {
         method: "POST",
       });
-      const data = (await response.json()) as
-        | AcceptanceRefreshResult
-        | { detail: string };
+      const data = (await response.json()) as AcceptanceRequest | { detail: string };
       if (!response.ok) {
         throw new Error(
           "detail" in data
@@ -326,7 +363,31 @@ export function ConnectionImportPanel({
             : "Accepted invitations could not be checked.",
         );
       }
-      setAcceptanceResult(data as AcceptanceRefreshResult);
+      const request = data as AcceptanceRequest;
+      if (!request.work_item_id) {
+        const status = await fetchWorkerStatus();
+        setAcceptanceResult(acceptanceResultFromStatus(status));
+      } else {
+        setAcceptanceActivity("Queued acceptance check.");
+        while (true) {
+          await new Promise((resolve) => window.setTimeout(resolve, 750));
+          const status = await fetchWorkerStatus();
+          setAcceptanceActivity(
+            status.current ??
+              (status.state === "queued"
+                ? "Waiting for the local worker."
+                : "Finishing acceptance check."),
+          );
+          if (status.last_work_item_id !== request.work_item_id) {
+            continue;
+          }
+          if (status.last_status !== "succeeded") {
+            throw new Error(status.last_error ?? "Acceptance check failed.");
+          }
+          setAcceptanceResult(acceptanceResultFromStatus(status));
+          break;
+        }
+      }
       const imports = await fetchImportHistory();
       setHistory(imports);
       setConnectionImport((current) =>
@@ -340,6 +401,7 @@ export function ConnectionImportPanel({
       );
     } finally {
       setIsCheckingAcceptance(false);
+      setAcceptanceActivity("");
     }
   }
 
@@ -614,9 +676,8 @@ export function ConnectionImportPanel({
                     aria-atomic="true"
                     className="text-sm text-muted-foreground"
                   >
-                    Checking {sentInvitationCount} sent{" "}
-                    {pluralize("invitation", sentInvitationCount)} against your
-                    LinkedIn connections.
+                    {acceptanceActivity ||
+                      `Checking ${sentInvitationCount} sent ${pluralize("invitation", sentInvitationCount)} against your LinkedIn connections.`}
                   </motion.p>
                 ) : acceptanceResult ? (
                   <motion.div

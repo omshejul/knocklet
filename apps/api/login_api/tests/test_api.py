@@ -92,16 +92,11 @@ class LoginApiTests(TestCase):
         assert response.status_code == 202
         store.approve.assert_called_once_with("import-id", [2, 4])
 
-    @patch("login_api.api.connection_imports")
-    def test_refreshes_connection_acceptance(self, store):
-        store.refresh_acceptance.return_value = {
-            "checked_count": 2,
-            "accepted_count": 1,
-            "pending_count": 1,
-            "checked_at": "2026-08-26T00:00:00+00:00",
-        }
-
+    @patch("login_api.api.enqueue_acceptance_check")
+    def test_requests_connection_acceptance_check(self, enqueue):
+        enqueue.return_value = None
         response = self.client.post("/api/connections/acceptance/refresh")
 
         assert response.status_code == 200
-        assert response.json()["accepted_count"] == 1
+        assert response.json()["state"] == "no_pending"
+        enqueue.assert_called_once_with(force=True)

@@ -1,18 +1,16 @@
 import csv
 import io
-import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
-from datetime import timezone as datetime_timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from django.db import close_old_connections, transaction
+from django.db import transaction
 from django.utils import timezone
 from python_calamine import CalamineError, CalamineWorkbook
 
-from .models import ConnectionImport, ConnectionRequest
+from .automation import queue_invitation, run_due_work
+from .models import ConnectionImport, ConnectionRequest, MessageTemplate
 
 MAX_IMPORT_BYTES = 2 * 1024 * 1024
 MAX_IMPORT_ROWS = 100
@@ -248,8 +246,6 @@ ClientFactory = Callable[[], object]
 class ConnectionImportStore:
     def __init__(self, client_factory: ClientFactory | None = None) -> None:
         self.client_factory = client_factory or self._get_client
-        self._threads: dict[str, threading.Thread] = {}
-        self._lock = threading.Lock()
 
     @staticmethod
     def _get_client():
@@ -358,212 +354,29 @@ class ConnectionImportStore:
 
             connection_import.status = ConnectionImport.Status.CHECKING
             connection_import.approved_at = timezone.now()
-            connection_import.save(update_fields=["status", "approved_at"])
+            template = MessageTemplate.objects.filter(
+                is_active=True,
+                auto_send_enabled=True,
+            ).first()
+            if template:
+                connection_import.message_template = template
+                connection_import.auto_message_enabled = True
+            connection_import.save(
+                update_fields=[
+                    "status",
+                    "approved_at",
+                    "message_template",
+                    "auto_message_enabled",
+                ]
+            )
+            for connection_request in ConnectionRequest.objects.filter(id__in=ready_ids):
+                queue_invitation(connection_request)
 
-        thread = threading.Thread(
-            target=self._check_and_send_requests,
-            args=(str(connection_import.id), ready_ids),
-            daemon=True,
-        )
-        with self._lock:
-            self._threads[import_id] = thread
-
-        thread.start()
         return self.get(import_id)
 
     def wait(self, import_id: str, timeout: float = 5) -> dict:
-        with self._lock:
-            thread = self._threads.get(import_id)
-        if thread is not None:
-            thread.join(timeout)
+        run_due_work(self.client_factory)
         return self.get(import_id)
-
-    def refresh_acceptance(self) -> dict:
-        sent_requests = list(
-            ConnectionRequest.objects.filter(
-                status=ConnectionRequest.Status.SENT,
-                sent_at__isnull=False,
-            ).order_by("sent_at")
-        )
-        checked_at = timezone.now()
-        if not sent_requests:
-            return {
-                "checked_count": 0,
-                "accepted_count": 0,
-                "pending_count": 0,
-                "checked_at": checked_at.isoformat(),
-            }
-
-        since_ms = int(sent_requests[0].sent_at.timestamp() * 1000)
-        try:
-            client = self.client_factory()
-            recent_connections = client.get_recent_connections(
-                max_results=1000,
-                since_ms=since_ms,
-            )
-        except Exception as error:
-            raise AcceptanceCheckError(
-                str(error) or "LinkedIn connections could not be checked."
-            ) from error
-
-        connected_by_public_id = {
-            connection.get("public_id", "").casefold(): connection
-            for connection in recent_connections
-            if connection.get("public_id")
-        }
-        accepted_count = 0
-        for connection_request in sent_requests:
-            connection_request.checked_at = checked_at
-            connection = connected_by_public_id.get(
-                connection_request.public_id.casefold()
-            )
-            if connection:
-                connected_at = connection.get("connected_at")
-                connection_request.status = ConnectionRequest.Status.ACCEPTED
-                connection_request.accepted_at = (
-                    datetime.fromtimestamp(
-                        connected_at / 1000,
-                        tz=datetime_timezone.utc,
-                    )
-                    if isinstance(connected_at, int)
-                    else checked_at
-                )
-                accepted_count += 1
-
-        ConnectionRequest.objects.bulk_update(
-            sent_requests,
-            ["status", "accepted_at", "checked_at"],
-        )
-        return {
-            "checked_count": len(sent_requests),
-            "accepted_count": accepted_count,
-            "pending_count": len(sent_requests) - accepted_count,
-            "checked_at": checked_at.isoformat(),
-        }
-
-    def _check_and_send_requests(self, import_id: str, request_ids: list[int]) -> None:
-        close_old_connections()
-        try:
-            client = self.client_factory()
-            pending_public_ids = client.get_sent_invitation_public_ids()
-        except (Exception, SystemExit):
-            self._fail_remaining(import_id, "LinkedIn status could not be checked.")
-            return
-
-        for request_id in request_ids:
-            connection_request = ConnectionRequest.objects.get(pk=request_id)
-            connection_request.status = ConnectionRequest.Status.CHECKING
-            connection_request.save(update_fields=["status"])
-
-            checked_at = timezone.now()
-            connection_request.provider_status = None
-            if connection_request.public_id.casefold() in pending_public_ids:
-                connection_request.status = ConnectionRequest.Status.PENDING
-                connection_request.error = "Connection request is already pending."
-            else:
-                status_error = None
-                try:
-                    connection_state = client.get_connection_state(
-                        connection_request.public_id,
-                        name=connection_request.name,
-                    )
-                except Exception as error:
-                    connection_state = "unknown"
-                    status_error = error
-
-                if connection_state == "connected":
-                    connection_request.status = ConnectionRequest.Status.CONNECTED
-                    connection_request.error = "Already connected."
-                elif connection_state == "not_connected":
-                    connection_request.status = ConnectionRequest.Status.READY
-                    connection_request.error = ""
-                else:
-                    connection_request.status = ConnectionRequest.Status.FAILED
-                    connection_request.error = (
-                        str(status_error)
-                        if status_error
-                        else "Connection status could not be confirmed."
-                    )
-                    provider_status = getattr(status_error, "status", None)
-                    if (
-                        isinstance(provider_status, int)
-                        and 100 <= provider_status <= 599
-                    ):
-                        connection_request.provider_status = provider_status
-
-            connection_request.checked_at = checked_at
-            connection_request.save(
-                update_fields=["status", "error", "provider_status", "checked_at"]
-            )
-
-        eligible_ids = list(
-            ConnectionRequest.objects.filter(
-                id__in=request_ids,
-                status=ConnectionRequest.Status.READY,
-            ).values_list("id", flat=True)
-        )
-        ConnectionImport.objects.filter(pk=import_id).update(
-            status=ConnectionImport.Status.SENDING
-        )
-
-        for request_id in eligible_ids:
-            connection_request = ConnectionRequest.objects.get(pk=request_id)
-            connection_request.status = ConnectionRequest.Status.SENDING
-            connection_request.save(update_fields=["status"])
-
-            try:
-                result = client.add_connection(
-                    profile_public_id=connection_request.public_id
-                )
-                response_status = int((result or {}).get("status", 0))
-                sent = 200 <= response_status < 300
-                error = (
-                    ""
-                    if sent
-                    else f"LinkedIn returned status {response_status or 'unknown'}."
-                )
-            except Exception as request_error:
-                sent = False
-                response_status = None
-                error = str(request_error) or "Request failed."
-
-            connection_request.status = (
-                ConnectionRequest.Status.SENT
-                if sent
-                else ConnectionRequest.Status.FAILED
-            )
-            connection_request.error = error
-            connection_request.provider_status = response_status
-            connection_request.sent_at = timezone.now() if sent else None
-            connection_request.save(
-                update_fields=[
-                    "status",
-                    "error",
-                    "provider_status",
-                    "sent_at",
-                ]
-            )
-
-        ConnectionImport.objects.filter(pk=import_id).update(
-            status=ConnectionImport.Status.COMPLETE,
-            completed_at=timezone.now(),
-        )
-        close_old_connections()
-
-    def _fail_remaining(self, import_id: str, error: str) -> None:
-        ConnectionRequest.objects.filter(
-            connection_import_id=import_id,
-            status__in=[
-                ConnectionRequest.Status.READY,
-                ConnectionRequest.Status.CHECKING,
-                ConnectionRequest.Status.SENDING,
-            ],
-        ).update(status=ConnectionRequest.Status.FAILED, error=error)
-        ConnectionImport.objects.filter(pk=import_id).update(
-            status=ConnectionImport.Status.COMPLETE,
-            completed_at=timezone.now(),
-        )
-        close_old_connections()
 
     @staticmethod
     def _snapshot(connection_import: ConnectionImport) -> dict:

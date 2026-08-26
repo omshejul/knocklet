@@ -3,9 +3,13 @@ from typing import Literal
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
 
+from .automation import (
+    acceptance_request_snapshot,
+    enqueue_acceptance_check,
+    work_status,
+)
 from .cli_login import LoginAlreadyRunning, LoginManager
 from .connection_imports import (
-    AcceptanceCheckError,
     ConnectionImportStore,
     ImportConflict,
     ImportFileError,
@@ -62,11 +66,22 @@ class ErrorOut(Schema):
     detail: str
 
 
-class AcceptanceRefreshOut(Schema):
-    checked_count: int
-    accepted_count: int
-    pending_count: int
-    checked_at: str
+class AcceptanceRequestOut(Schema):
+    state: str
+    work_item_id: str | None
+    due_at: str | None
+
+
+class WorkerStatusOut(Schema):
+    state: str
+    current: str | None
+    next_due_at: str | None
+    last_finished_at: str | None
+    last_work_item_id: str | None
+    last_status: str | None
+    last_error: str | None
+    pending_invitations: int
+    accepted_invitations: int
 
 
 class ConnectionApprovalIn(Schema):
@@ -112,13 +127,17 @@ def connection_import_history(request):
 
 @api.post(
     "/connections/acceptance/refresh",
-    response={200: AcceptanceRefreshOut, 502: ErrorOut},
+    response={202: AcceptanceRequestOut, 200: AcceptanceRequestOut},
 )
 def refresh_connection_acceptance(request):
-    try:
-        return connection_imports.refresh_acceptance()
-    except AcceptanceCheckError as error:
-        return Status(502, {"detail": str(error)})
+    work_item = enqueue_acceptance_check(force=True)
+    response = acceptance_request_snapshot(work_item)
+    return Status(202 if work_item else 200, response)
+
+
+@api.get("/automation/status", response=WorkerStatusOut)
+def automation_status(request):
+    return work_status()
 
 
 @api.get(
