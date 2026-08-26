@@ -7,7 +7,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -208,6 +208,8 @@ export function ConnectionImportPanel({
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const selectionAnchorRef = useRef<number | null>(null);
+  const shiftPressedRef = useRef(false);
   const [selectedActivityRows, setSelectedActivityRows] = useState<Set<string>>(
     new Set(),
   );
@@ -308,6 +310,7 @@ export function ConnectionImportPanel({
             .map((person) => person.row_number),
         ),
       );
+      selectionAnchorRef.current = null;
       setHistory((current) =>
         upsertImport(current, imported),
       );
@@ -423,6 +426,43 @@ export function ConnectionImportPanel({
     }
   }
 
+  function setPersonSelected(
+    rowNumber: number,
+    checked: boolean,
+    selectRange: boolean,
+  ) {
+    const selectableRows =
+      connectionImport?.people
+        .filter((person) => person.status === "ready")
+        .map((person) => person.row_number) ?? [];
+    const anchor = selectionAnchorRef.current;
+    const targetRows = [rowNumber];
+    if (selectRange && anchor !== null) {
+      const anchorIndex = selectableRows.indexOf(anchor);
+      const currentIndex = selectableRows.indexOf(rowNumber);
+      if (anchorIndex >= 0 && currentIndex >= 0) {
+        targetRows.splice(
+          0,
+          targetRows.length,
+          ...selectableRows.slice(
+            Math.min(anchorIndex, currentIndex),
+            Math.max(anchorIndex, currentIndex) + 1,
+          ),
+        );
+      }
+    }
+
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      for (const targetRow of targetRows) {
+        if (checked) next.add(targetRow);
+        else next.delete(targetRow);
+      }
+      return next;
+    });
+    selectionAnchorRef.current = rowNumber;
+  }
+
   const activity = history
     .flatMap((item) =>
       item.people.map((person) => ({ importId: item.id, person })),
@@ -471,6 +511,7 @@ export function ConnectionImportPanel({
                     setFile(files[0] ?? null);
                     setConnectionImport(null);
                     setSelectedRows(new Set());
+                    selectionAnchorRef.current = null;
                     setError("");
                   }}
                   onFileReject={(_, message) => {
@@ -562,6 +603,12 @@ export function ConnectionImportPanel({
                     )}
                   </div>
 
+                  {canSelectPeople && readyPeople.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Shift-click to select a range.
+                    </p>
+                  ) : null}
+
                   <div
                     className="overflow-hidden rounded-xl border"
                     aria-label="Imported people"
@@ -588,6 +635,7 @@ export function ConnectionImportPanel({
                                         }
                                         return next;
                                       });
+                                      selectionAnchorRef.current = null;
                                     }}
                                   />
                                 </TableHead>
@@ -614,16 +662,16 @@ export function ConnectionImportPanel({
                                         person.row_number,
                                       )}
                                       disabled={person.status !== "ready"}
+                                      onClick={(event) => {
+                                        shiftPressedRef.current = event.shiftKey;
+                                      }}
                                       onCheckedChange={(checked) => {
-                                        setSelectedRows((current) => {
-                                          const next = new Set(current);
-                                          if (checked) {
-                                            next.add(person.row_number);
-                                          } else {
-                                            next.delete(person.row_number);
-                                          }
-                                          return next;
-                                        });
+                                        setPersonSelected(
+                                          person.row_number,
+                                          Boolean(checked),
+                                          shiftPressedRef.current,
+                                        );
+                                        shiftPressedRef.current = false;
                                       }}
                                     />
                                   </TableCell>
