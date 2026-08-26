@@ -15,6 +15,7 @@ import { ConnectionImportPanel } from "@/components/connection-import-panel";
 import { LogsPanel } from "@/components/logs-panel";
 import { MessagesPanel } from "@/components/messages-panel";
 import { PeoplePanel } from "@/components/people-panel";
+import { UpdateNav } from "@/components/update-nav";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -91,6 +92,7 @@ export function DashboardShell() {
                 );
               })}
             </nav>
+            <UpdateNav className="mt-auto mx-3 mb-3" />
           </SheetContent>
         </Sheet>
       </header>
@@ -161,6 +163,7 @@ export function DashboardShell() {
               );
             })}
           </nav>
+          <UpdateNav collapsed={isCollapsed} className="mt-auto" />
         </div>
       </aside>
 

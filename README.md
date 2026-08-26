@@ -89,4 +89,12 @@ pnpm build
 pnpm test
 ```
 
+## Desktop updates
+
+The installed macOS app checks GitHub Releases on launch and every six hours. The sidebar and menu-bar menu can also check manually. A found update is downloaded only after the user approves it, then installed when the user chooses "Restart to update".
+
+Run `pnpm release:desktop` from a clean checkout of GitHub `main` to build, sign, notarize, and publish the DMG, ZIP, blockmaps, and `latest-mac.yml`. The release command refuses private repositories because shipped apps must not contain a GitHub access token. It publishes the OTA-capable release before deleting `v0.1.0`.
+
+Version `0.2.0` is the OTA baseline and needs one manual installation. Releases after it can update from inside Knocklet.
+
 The existing live LinkedIn integration tests remain in `apps/cli/tests`. They require a saved LinkedIn session and are not part of the default test command.
