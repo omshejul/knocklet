@@ -1,10 +1,10 @@
 import { DownloadLink } from "@/components/download-link";
 
 const steps = [
-  ["01", "Import", "CSV, Excel, or OpenDocument"],
-  ["02", "Choose", "Select only the people you want"],
-  ["03", "Approve", "Knocklet checks before it sends"],
-  ["04", "Track", "Results stay on this Mac"],
+  ["01", "Add your list", "Upload CSV, Excel, or ODS"],
+  ["02", "Choose people", "Select who you want to contact"],
+  ["03", "Send requests", "Review your selection and send"],
+  ["04", "See results", "View sent, pending, accepted, or failed"],
 ];
 
 export default function Home() {
@@ -27,14 +27,14 @@ export default function Home() {
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <h1>LinkedIn outreach that stays on your Mac.</h1>
+          <h1>Send LinkedIn connection requests from a list.</h1>
           <p>
-            Import a contact list, choose who to contact, then approve. Knocklet
-            checks each person before sending and records the result locally.
+            Import your contacts, choose who you want to reach, and send. See
+            what happened with every request.
           </p>
           <div className="hero-action">
             <DownloadLink />
-            <span>Version 0.2.0 · Apple silicon · macOS 13+</span>
+            <span>For M1 or newer Macs · macOS 13+</span>
           </div>
         </div>
 
@@ -57,8 +57,8 @@ export default function Home() {
       </section>
 
       <footer>
-        <span>Knocklet is open source under the MIT License.</span>
-        <a href="https://github.com/omshejul/knocklet/releases">All releases</a>
+        <span>Open source. MIT licensed.</span>
+        <a href="https://github.com/omshejul/knocklet/releases">All downloads</a>
       </footer>
     </main>
   );
