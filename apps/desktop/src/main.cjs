@@ -4,12 +4,14 @@ const {
   dialog,
   Menu,
   nativeImage,
+  shell,
   Tray,
 } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { createExternalLinkHandler } = require("./external-links.cjs");
 const { createMenuTray } = require("./menu-tray.cjs");
 
 const { createDesktopUpdates } = require("./desktop-updates.cjs");
@@ -172,6 +174,12 @@ function createWindow() {
     mainWindow.hide();
     app.dock?.hide();
   });
+  mainWindow.webContents.setWindowOpenHandler(
+    createExternalLinkHandler({
+      shell,
+      onError: (error) => dialog.showErrorBox("Link could not open", error.message),
+    }),
+  );
   mainWindow.once("ready-to-show", showWindow);
   mainWindow.loadURL(WEB_URL).catch((error) => stopAfterRuntimeFailure("web", error));
 }

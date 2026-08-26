@@ -11,9 +11,9 @@ const atkinson = Atkinson_Hyperlegible({
 });
 
 export const metadata: Metadata = {
-  title: "Knocklet | Local LinkedIn outreach for Mac",
+  title: "Knocklet | Send LinkedIn requests from a list",
   description:
-    "Import contacts, approve LinkedIn connection requests, and track every result locally on your Mac.",
+    "Import contacts, choose who you want to reach, and see what happened with every LinkedIn connection request.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
