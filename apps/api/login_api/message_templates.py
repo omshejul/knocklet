@@ -1,11 +1,59 @@
+import re
+
 from django.db import transaction
 
 from .models import MessageTemplate
+
+TEMPLATE_FIELD_PATTERN = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+TEMPLATE_FIELDS = {
+    "first_name": "First name",
+    "full_name": "Full name",
+}
 
 
 def get_active_template() -> dict | None:
     template = MessageTemplate.objects.filter(is_active=True).first()
     return template_snapshot(template) if template else None
+
+
+def list_template_fields() -> list[dict]:
+    return [
+        {
+            "name": name,
+            "label": label,
+            "placeholder": f"{{{name}}}",
+        }
+        for name, label in TEMPLATE_FIELDS.items()
+    ]
+
+
+def validate_template_body(body: str) -> None:
+    placeholders = TEMPLATE_FIELD_PATTERN.findall(body)
+    unknown = [name for name in placeholders if name not in TEMPLATE_FIELDS]
+    if unknown:
+        raise ValueError(f"Unknown message field: {{{unknown[0]}}}.")
+
+    text_without_fields = TEMPLATE_FIELD_PATTERN.sub("", body)
+    if "{" in text_without_fields or "}" in text_without_fields:
+        raise ValueError("Message fields must be selected from the field menu.")
+
+
+def render_template_body(body: str, full_name: str) -> str:
+    validate_template_body(body)
+    clean_name = full_name.strip()
+    values = {
+        "first_name": clean_name.split()[0] if clean_name else "there",
+        "full_name": clean_name or "there",
+    }
+    return TEMPLATE_FIELD_PATTERN.sub(
+        lambda match: values[match.group(1)],
+        body,
+    )
+
+
+def validate_rendered_message_body(body: str) -> None:
+    if "{" in body or "}" in body:
+        raise ValueError("Message contains an unresolved field and was not sent.")
 
 
 @transaction.atomic
@@ -18,6 +66,7 @@ def save_active_template(
     cleaned_body = body.strip()
     if not cleaned_body:
         raise ValueError("Message text is required.")
+    validate_template_body(cleaned_body)
     MessageTemplate.objects.filter(is_active=True).update(is_active=False)
     template = MessageTemplate.objects.create(
         name=name.strip() or "Follow-up",

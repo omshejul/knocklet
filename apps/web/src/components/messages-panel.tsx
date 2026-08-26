@@ -7,6 +7,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  getTemplateFieldError,
+  TemplateFieldEditor,
+  type TemplateField,
+} from "@/components/template-field-editor";
+import { cn } from "@/lib/utils";
 
 type MessageTemplate = {
   body: string;
@@ -17,6 +23,7 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 export function MessagesPanel() {
   const [body, setBody] = useState("");
+  const [fields, setFields] = useState<TemplateField[]>([]);
   const [autoSend, setAutoSend] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -25,16 +32,33 @@ export function MessagesPanel() {
 
   useEffect(() => {
     let active = true;
-    void fetch(apiUrl + "/message-template", { cache: "no-store" })
-      .then(async (response) => {
-        if (response.status === 204) return null;
-        if (!response.ok) throw new Error("Template could not be loaded.");
-        return (await response.json()) as MessageTemplate;
+    void Promise.all([
+      fetch(apiUrl + "/message-template", { cache: "no-store" }),
+      fetch(apiUrl + "/message-template/fields", { cache: "no-store" }),
+    ])
+      .then(async ([templateResponse, fieldsResponse]) => {
+        if (!fieldsResponse.ok) {
+          throw new Error("Message fields could not be loaded.");
+        }
+        const template =
+          templateResponse.status === 204
+            ? null
+            : ((await templateResponse.json()) as MessageTemplate);
+        if (templateResponse.status !== 204 && !templateResponse.ok) {
+          throw new Error("Template could not be loaded.");
+        }
+        return {
+          template,
+          fields: (await fieldsResponse.json()) as TemplateField[],
+        };
       })
-      .then((template) => {
-        if (!active || !template) return;
-        setBody(template.body);
-        setAutoSend(template.auto_send_enabled);
+      .then((result) => {
+        if (!active) return;
+        setFields(result.fields);
+        if (result.template) {
+          setBody(result.template.body);
+          setAutoSend(result.template.auto_send_enabled);
+        }
       })
       .catch((loadError: Error) => {
         if (active) setError(loadError.message);
@@ -48,6 +72,11 @@ export function MessagesPanel() {
   }, []);
 
   async function saveTemplate() {
+    const fieldError = getTemplateFieldError(body, fields);
+    if (fieldError) {
+      setError(fieldError);
+      return;
+    }
     setIsSaving(true);
     setConfirmation("");
     setError("");
@@ -77,6 +106,8 @@ export function MessagesPanel() {
     }
   }
 
+  const fieldError = getTemplateFieldError(body, fields);
+
   return (
     <Card className="mt-5 shadow-xl shadow-black/40">
       <CardContent className="space-y-4 px-4 sm:px-5">
@@ -84,17 +115,20 @@ export function MessagesPanel() {
           <label htmlFor="message-template" className="text-sm font-bold">
             Follow-up template
           </label>
-          <textarea
+          <TemplateFieldEditor
             id="message-template"
             value={body}
-            onChange={(event) => setBody(event.target.value)}
+            onChange={setBody}
+            fields={fields}
             disabled={isLoading || isSaving}
-            rows={6}
-            placeholder="Thanks for connecting, {first_name}."
-            className="mt-2 flex min-h-32 w-full resize-y rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Use {"{first_name}"}. Applies to requests approved after saving.
+          <p
+            className={cn(
+              "mt-1.5 text-xs text-muted-foreground",
+              fieldError && "text-destructive",
+            )}
+          >
+            {fieldError || "Type { to insert a field. Applies to requests approved after saving."}
           </p>
         </div>
 
@@ -122,7 +156,12 @@ export function MessagesPanel() {
         <Button
           type="button"
           onClick={saveTemplate}
-          disabled={isLoading || isSaving || body.trim().length === 0}
+          disabled={
+            isLoading ||
+            isSaving ||
+            body.trim().length === 0 ||
+            Boolean(fieldError)
+          }
           aria-busy={isSaving}
           className="min-h-11"
         >

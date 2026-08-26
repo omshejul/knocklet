@@ -14,6 +14,7 @@ from .models import (
     Person,
     WorkItem,
 )
+from .message_templates import render_template_body, validate_rendered_message_body
 
 ClientFactory = Callable[[], object]
 ACCEPTANCE_INTERVAL = timedelta(minutes=30)
@@ -358,9 +359,21 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
     if template is None or not template.auto_send_enabled:
         return None
 
-    first_name = invitation.person.name.split()[0] if invitation.person.name else "there"
     template_body = source_import.message_template_body or template.body
-    body = template_body.replace("{first_name}", first_name)
+    try:
+        body = render_template_body(template_body, invitation.person.name)
+    except ValueError as error:
+        message, _ = Message.objects.get_or_create(
+            invitation=invitation,
+            defaults={
+                "template": template,
+                "body": template_body,
+                "status": Message.Status.FAILED,
+                "error": str(error),
+                "queued_at": timezone.now(),
+            },
+        )
+        return message
     message, created = Message.objects.get_or_create(
         invitation=invitation,
         defaults={
@@ -382,6 +395,7 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
 
 def _send_message(work_item: WorkItem, client) -> None:
     message = Message.objects.select_related("invitation__person").get(pk=work_item.message_id)
+    validate_rendered_message_body(message.body)
     message.status = Message.Status.SENDING
     message.save(update_fields=["status", "updated_at"])
     person = message.invitation.person

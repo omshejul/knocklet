@@ -77,6 +77,38 @@ class LoginApiTests(TestCase):
         assert response.json()["auto_send_enabled"] is True
         assert self.client.get("/api/message-template").json()["name"] == "Accepted"
 
+    def test_rejects_unknown_message_template_field(self):
+        response = self.client.put(
+            "/api/message-template",
+            data={
+                "body": "Thanks for connecting, {dummy_name}.",
+                "auto_send_enabled": True,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "Unknown message field: {dummy_name}."
+        )
+
+    def test_lists_available_message_template_fields(self):
+        response = self.client.get("/api/message-template/fields")
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "name": "first_name",
+                "label": "First name",
+                "placeholder": "{first_name}",
+            },
+            {
+                "name": "full_name",
+                "label": "Full name",
+                "placeholder": "{full_name}",
+            },
+        ]
+
     def test_reads_exact_work_item_status(self):
         work_item = WorkItem.objects.create(
             kind=WorkItem.Kind.CHECK_ACCEPTANCES,

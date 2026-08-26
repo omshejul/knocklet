@@ -146,6 +146,81 @@ class AutomationTests(TransactionTestCase):
             ("Hello Ada", ["urn:li:fsd_profile:ada"]),
         ]
 
+    def test_invalid_template_snapshot_is_never_sent(self):
+        client = AcceptedMessagingClient()
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+        template = MessageTemplate.objects.create(
+            body="Hello {dummy_name}",
+            is_active=True,
+            auto_send_enabled=True,
+        )
+        connection_import = ConnectionImport.objects.create(
+            filename="people.csv",
+            status=ConnectionImport.Status.COMPLETE,
+            message_template=template,
+            message_template_body="Hello {dummy_name}",
+            auto_message_enabled=True,
+        )
+        ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            person=person,
+            invitation=invitation,
+            row_number=2,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.SENT,
+            sent_at=invitation.sent_at,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        message = Message.objects.get(invitation=invitation)
+        assert message.status == "failed"
+        assert message.error == "Unknown message field: {dummy_name}."
+        assert client.messages == []
+
+    def test_queued_message_with_unresolved_field_is_never_sent(self):
+        client = AcceptedMessagingClient()
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            sent_at=timezone.now(),
+            accepted_at=timezone.now(),
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello {dummy_name}",
+            status=Message.Status.QUEUED,
+            queued_at=timezone.now(),
+        )
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        message.refresh_from_db()
+        work_item.refresh_from_db()
+        assert message.status == Message.Status.FAILED
+        assert message.error == (
+            "Message contains an unresolved field and was not sent."
+        )
+        assert work_item.status == WorkItem.Status.FAILED
+        assert client.messages == []
+
     def test_failed_acceptance_check_waits_before_retrying(self):
         person = Person.objects.create(name="Ada", public_id="ada")
         Invitation.objects.create(

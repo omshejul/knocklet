@@ -17,7 +17,11 @@ from .connection_imports import (
     ImportNotFound,
 )
 from .outreach import list_people
-from .message_templates import get_active_template, save_active_template
+from .message_templates import (
+    get_active_template,
+    list_template_fields,
+    save_active_template,
+)
 
 
 class HealthOut(Schema):
@@ -134,6 +138,12 @@ class MessageTemplateOut(Schema):
     updated_at: str
 
 
+class MessageTemplateFieldOut(Schema):
+    name: str
+    label: str
+    placeholder: str
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -204,6 +214,11 @@ def people(request):
 def message_template(request):
     template = get_active_template()
     return template if template else Status(204, None)
+
+
+@api.get("/message-template/fields", response=list[MessageTemplateFieldOut])
+def message_template_fields(request):
+    return list_template_fields()
 
 
 @api.put(
