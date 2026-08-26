@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,22 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "linkedin_api.urls"
-DATABASES = {}
+DATA_DIR = Path(
+    os.environ.get("LINKEDIN_DATA_DIR", Path.home() / ".linkedin-cli")
+).expanduser()
+DATABASE_PATH = Path(
+    os.environ.get("LINKEDIN_DATABASE_PATH", DATA_DIR / "linkedin.sqlite3")
+).expanduser()
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": DATABASE_PATH,
+        "OPTIONS": {"timeout": 20},
+        "TEST": {"NAME": ":memory:"},
+    }
+}
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
