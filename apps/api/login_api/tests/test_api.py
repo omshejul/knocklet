@@ -172,6 +172,7 @@ class LoginApiTests(TestCase):
                 "error": "LinkedIn returned status 429.",
                 "provider_status": 429,
                 "attempt_count": 1,
+                "activity_at": work_item.completed_at.isoformat(),
                 "due_at": work_item.due_at.isoformat(),
                 "created_at": work_item.created_at.isoformat(),
                 "started_at": None,

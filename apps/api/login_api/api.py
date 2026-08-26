@@ -114,6 +114,7 @@ class ActivityLogOut(Schema):
     error: str | None
     provider_status: int | None
     attempt_count: int
+    activity_at: str
     due_at: str
     created_at: str
     started_at: str | None

@@ -1,3 +1,5 @@
+from django.db.models.functions import Coalesce
+
 from .models import WorkItem
 
 
@@ -7,7 +9,8 @@ def list_logs(limit: int = 500) -> list[dict]:
             "invitation__person",
             "message__invitation__person",
         )
-        .order_by("-created_at")[:limit]
+        .annotate(activity_at=Coalesce("completed_at", "started_at", "created_at"))
+        .order_by("-activity_at")[:limit]
     )
     return [_log_snapshot(work_item) for work_item in work_items]
 
@@ -25,6 +28,7 @@ def _log_snapshot(work_item: WorkItem) -> dict:
         "error": work_item.error or None,
         "provider_status": work_item.provider_status,
         "attempt_count": work_item.attempt_count,
+        "activity_at": work_item.activity_at.isoformat(),
         "due_at": work_item.due_at.isoformat(),
         "created_at": work_item.created_at.isoformat(),
         "started_at": (
