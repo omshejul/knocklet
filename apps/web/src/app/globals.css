@@ -24,8 +24,8 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
-  --font-sans: "Bellota Text", "Bellota Text Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: "Bellota Text", "Bellota Text Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-atkinson-hyperlegible), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-atkinson-hyperlegible), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -101,11 +101,11 @@
   --sidebar-border: oklch(0.94 0 0);
   --sidebar-ring: oklch(0 0 0);
   --radius: 0.875rem;
-  --font-sans: "Bellota Text", "Bellota Text Fallback", sans-serif;
+  --font-sans: var(--font-atkinson-hyperlegible), sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --font-display: "Bellota Text", "Bellota Text Fallback", sans-serif;
-  --font-text: "Bellota Text", "Bellota Text Fallback", sans-serif;
+  --font-display: var(--font-atkinson-hyperlegible), sans-serif;
+  --font-text: var(--font-atkinson-hyperlegible), sans-serif;
   --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.09);
   --shadow-xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.09);
   --shadow-sm: 0px 1px 2px 0px hsl(0 0% 0% / 0.18), 0px 1px 2px -1px hsl(0 0% 0% / 0.18);

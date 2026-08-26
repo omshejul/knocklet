@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Bellota_Text } from "next/font/google";
+import { Atkinson_Hyperlegible } from "next/font/google";
 import "./globals.css";
 
-const bellotaText = Bellota_Text({
-  variable: "--font-bellota-text",
+const atkinsonHyperlegible = Atkinson_Hyperlegible({
+  variable: "--font-atkinson-hyperlegible",
   subsets: ["latin"],
-  weight: ["300", "400", "700"],
+  weight: ["400", "700"],
 });
 
 export const metadata: Metadata = {
@@ -17,7 +17,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${bellotaText.variable} dark h-full antialiased`}
+      className={`${atkinsonHyperlegible.variable} dark h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
