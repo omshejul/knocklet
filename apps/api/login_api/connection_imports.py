@@ -360,12 +360,14 @@ class ConnectionImportStore:
             ).first()
             if template:
                 connection_import.message_template = template
+                connection_import.message_template_body = template.body
                 connection_import.auto_message_enabled = True
             connection_import.save(
                 update_fields=[
                     "status",
                     "approved_at",
                     "message_template",
+                    "message_template_body",
                     "auto_message_enabled",
                 ]
             )

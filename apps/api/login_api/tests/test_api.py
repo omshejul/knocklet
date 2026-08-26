@@ -60,6 +60,21 @@ class LoginApiTests(TestCase):
         assert response.status_code == 200
         assert response.json()[0]["filename"] == "people.csv"
 
+    def test_saves_message_template(self):
+        response = self.client.put(
+            "/api/message-template",
+            data={
+                "name": "Accepted",
+                "body": "Thanks for connecting, {first_name}.",
+                "auto_send_enabled": True,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["auto_send_enabled"] is True
+        assert self.client.get("/api/message-template").json()["name"] == "Accepted"
+
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):
         store.approve.return_value = {

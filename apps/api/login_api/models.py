@@ -27,6 +27,7 @@ class ConnectionImport(models.Model):
         on_delete=models.SET_NULL,
         related_name="connection_imports",
     )
+    message_template_body = models.TextField(blank=True)
     auto_message_enabled = models.BooleanField(default=False)
 
     class Meta:

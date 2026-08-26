@@ -1,9 +1,16 @@
 "use client";
 
-import { PanelLeftClose, PanelLeftOpen, Send, Users } from "lucide-react";
+import {
+  MessageSquareText,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Send,
+  Users,
+} from "lucide-react";
 import { useState } from "react";
 
 import { ConnectionImportPanel } from "@/components/connection-import-panel";
+import { MessagesPanel } from "@/components/messages-panel";
 import { PeoplePanel } from "@/components/people-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +18,7 @@ import { cn } from "@/lib/utils";
 const sections = [
   { id: "send" as const, label: "Send requests", icon: Send },
   { id: "people" as const, label: "People", icon: Users },
+  { id: "messages" as const, label: "Messages", icon: MessageSquareText },
 ];
 
 type DashboardSection = (typeof sections)[number]["id"];
@@ -66,7 +74,7 @@ export function DashboardShell() {
           <nav
             id="dashboard-navigation"
             aria-label="Dashboard"
-            className="grid grid-cols-2 gap-1 md:mt-2 md:flex md:flex-col"
+            className="grid grid-cols-3 gap-1 md:mt-2 md:flex md:flex-col"
           >
             {sections.map((item) => {
               const Icon = item.icon;
@@ -100,12 +108,18 @@ export function DashboardShell() {
       <main className="min-w-0 px-5 py-8 sm:px-8 md:py-10">
         <div className="mx-auto w-full max-w-5xl">
           <h1 className="text-2xl font-bold tracking-tight">
-            {section === "send" ? "Send requests" : "People"}
+            {section === "send"
+              ? "Send requests"
+              : section === "people"
+                ? "People"
+                : "Messages"}
           </h1>
           {section === "send" ? (
             <ConnectionImportPanel section="send" />
-          ) : (
+          ) : section === "people" ? (
             <PeoplePanel />
+          ) : (
+            <MessagesPanel />
           )}
         </div>
       </main>

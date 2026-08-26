@@ -16,6 +16,7 @@ from .connection_imports import (
     ImportNotFound,
 )
 from .outreach import list_people
+from .message_templates import get_active_template, save_active_template
 
 
 class HealthOut(Schema):
@@ -106,6 +107,21 @@ class OutreachPersonOut(Schema):
     last_activity_at: str
 
 
+class MessageTemplateIn(Schema):
+    name: str = "Follow-up"
+    body: str
+    auto_send_enabled: bool = False
+
+
+class MessageTemplateOut(Schema):
+    id: str
+    name: str
+    body: str
+    is_active: bool
+    auto_send_enabled: bool
+    updated_at: str
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -161,6 +177,27 @@ def automation_status(request):
 @api.get("/people", response=list[OutreachPersonOut])
 def people(request):
     return list_people()
+
+
+@api.get("/message-template", response={200: MessageTemplateOut, 204: None})
+def message_template(request):
+    template = get_active_template()
+    return template if template else Status(204, None)
+
+
+@api.put(
+    "/message-template",
+    response={200: MessageTemplateOut, 400: ErrorOut},
+)
+def update_message_template(request, payload: MessageTemplateIn):
+    try:
+        return save_active_template(
+            name=payload.name,
+            body=payload.body,
+            auto_send_enabled=payload.auto_send_enabled,
+        )
+    except ValueError as error:
+        return Status(400, {"detail": str(error)})
 
 
 @api.get(

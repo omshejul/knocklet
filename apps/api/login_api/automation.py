@@ -321,7 +321,8 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
         return None
 
     first_name = invitation.person.name.split()[0] if invitation.person.name else "there"
-    body = template.body.replace("{first_name}", first_name)
+    template_body = source_import.message_template_body or template.body
+    body = template_body.replace("{first_name}", first_name)
     message, created = Message.objects.get_or_create(
         invitation=invitation,
         defaults={

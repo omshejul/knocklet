@@ -3,7 +3,15 @@ from django.utils import timezone
 
 from login_api.automation import recover_interrupted_work, run_due_work
 from login_api.connection_imports import ConnectionImportStore
-from login_api.models import Invitation, WorkItem
+from login_api.models import (
+    ConnectionImport,
+    ConnectionRequest,
+    Invitation,
+    Message,
+    MessageTemplate,
+    Person,
+    WorkItem,
+)
 
 
 class SafeClient:
@@ -24,6 +32,21 @@ class SafeClient:
 class UncertainClient(SafeClient):
     def add_connection(self, profile_public_id):
         raise TimeoutError("LinkedIn did not confirm the invitation.")
+
+
+class AcceptedMessagingClient:
+    def __init__(self):
+        self.messages = []
+
+    def get_recent_connections(self, max_results, since_ms):
+        return [{"public_id": "ada", "connected_at": since_ms + 1000}]
+
+    def get_profile(self, public_id):
+        return {"entityUrn": "urn:li:fsd_profile:ada"}
+
+    def send_message(self, message_body, recipients):
+        self.messages.append((message_body, recipients))
+        return {"status": 201}
 
 
 class AutomationTests(TransactionTestCase):
@@ -72,8 +95,52 @@ class AutomationTests(TransactionTestCase):
         invitation.refresh_from_db()
         assert invitation.status == "needs_review"
 
+    def test_acceptance_queues_and_sends_the_approved_template_snapshot(self):
+        client = AcceptedMessagingClient()
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+        template = MessageTemplate.objects.create(
+            body="Changed text",
+            is_active=True,
+            auto_send_enabled=True,
+        )
+        connection_import = ConnectionImport.objects.create(
+            filename="people.csv",
+            status=ConnectionImport.Status.COMPLETE,
+            message_template=template,
+            message_template_body="Hello {first_name}",
+            auto_message_enabled=True,
+        )
+        ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            person=person,
+            invitation=invitation,
+            row_number=2,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.SENT,
+            sent_at=invitation.sent_at,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        invitation.refresh_from_db()
+        message = Message.objects.get(invitation=invitation)
+        assert invitation.status == "accepted"
+        assert message.body == "Hello Ada"
+        assert message.status == "sent"
+        assert client.messages == [
+            ("Hello Ada", ["urn:li:fsd_profile:ada"]),
+        ]
+
     @staticmethod
     def _person_id():
-        from login_api.models import Person
-
         return Person.objects.create(name="Ada", public_id="ada").id
