@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Logs,
   Menu,
   MessageSquareText,
   PanelLeftClose,
@@ -11,6 +12,7 @@ import {
 import { useState } from "react";
 
 import { ConnectionImportPanel } from "@/components/connection-import-panel";
+import { LogsPanel } from "@/components/logs-panel";
 import { MessagesPanel } from "@/components/messages-panel";
 import { PeoplePanel } from "@/components/people-panel";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,7 @@ const sections = [
   { id: "send" as const, label: "Send requests", icon: Send },
   { id: "people" as const, label: "People", icon: Users },
   { id: "messages" as const, label: "Messages", icon: MessageSquareText },
+  { id: "logs" as const, label: "Logs", icon: Logs },
 ];
 
 type DashboardSection = (typeof sections)[number]["id"];
@@ -165,15 +168,21 @@ export function DashboardShell() {
         <div className="mx-auto w-full max-w-5xl">
           {section !== "messages" ? (
             <h1 className="text-2xl font-normal tracking-tight">
-              {section === "send" ? "Send requests" : "People"}
+              {section === "send"
+                ? "Send requests"
+                : section === "people"
+                  ? "People"
+                  : "Logs"}
             </h1>
           ) : null}
           {section === "send" ? (
             <ConnectionImportPanel section="send" />
           ) : section === "people" ? (
             <PeoplePanel />
-          ) : (
+          ) : section === "messages" ? (
             <MessagesPanel />
+          ) : (
+            <LogsPanel />
           )}
         </div>
       </main>
