@@ -61,6 +61,38 @@ class LoginApiTests(TestCase):
         assert response.json()[0]["filename"] == "people.csv"
 
     @patch("login_api.api.connection_imports")
+    def test_approves_only_selected_connection_rows(self, store):
+        store.approve.return_value = {
+            "id": "import-id",
+            "filename": "people.csv",
+            "status": "checking",
+            "people": [],
+            "ready_count": 0,
+            "sent_count": 0,
+            "accepted_count": 0,
+            "pending_count": 0,
+            "connected_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "total_count": 2,
+            "checked_count": 0,
+            "processed_count": 0,
+            "progress_percent": 0,
+            "created_at": "2026-08-26T00:00:00+00:00",
+            "approved_at": "2026-08-26T00:00:01+00:00",
+            "completed_at": None,
+        }
+
+        response = self.client.post(
+            "/api/connections/import/import-id/approve",
+            data={"row_numbers": [2, 4]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        store.approve.assert_called_once_with("import-id", [2, 4])
+
+    @patch("login_api.api.connection_imports")
     def test_refreshes_connection_acceptance(self, store):
         store.refresh_acceptance.return_value = {
             "checked_count": 2,
