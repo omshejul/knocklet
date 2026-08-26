@@ -1,6 +1,7 @@
 from django.db.models import Max
 
 from .models import Invitation, Message, Person
+from .people_actions import available_person_action
 
 
 def list_people(limit: int = 500) -> list[dict]:
@@ -52,5 +53,6 @@ def _person_snapshot(person: Person) -> dict:
         "message_status": message.status if message else "not_scheduled",
         "message_error": message.error or None if message else None,
         "message_sent_at": message.sent_at.isoformat() if message and message.sent_at else None,
+        "available_action": available_person_action(invitation, message),
         "last_activity_at": last_activity.isoformat(),
     }

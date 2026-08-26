@@ -4,6 +4,8 @@ import {
   ExternalLink,
   LoaderCircle,
   MoreVertical,
+  RefreshCw,
+  Send,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -54,6 +56,7 @@ type Person = {
   message_status: string;
   message_error: string | null;
   message_sent_at: string | null;
+  available_action: string | null;
   last_activity_at: string;
 };
 
@@ -74,6 +77,15 @@ type WorkerStatus = {
 type WorkItemStatus = {
   status: string;
   error: string | null;
+};
+
+type ProcessPeopleResult = {
+  requested_count: number;
+  invitation_count: number;
+  message_count: number;
+  check_count: number;
+  skipped_count: number;
+  acceptance_work_item_id: string | null;
 };
 
 type Filter = "all" | "pending" | "accepted" | "failed" | "needs_review";
@@ -128,6 +140,7 @@ export function PeoplePanel() {
   );
   const [deleteTargets, setDeleteTargets] = useState<Person[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
 
@@ -218,6 +231,52 @@ export function PeoplePanel() {
     await load();
   }
 
+  async function processPeople(targets: Person[]) {
+    const eligibleTargets = targets.filter((person) => personAction(person));
+    if (eligibleTargets.length === 0) {
+      setError("No selected people have an available action.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setConfirmation("");
+    setError("");
+    try {
+      const response = await fetch(apiUrl + "/people/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_ids: eligibleTargets.map((person) => person.id),
+        }),
+      });
+      const data = (await response.json()) as ProcessPeopleResult & {
+        detail?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.detail ?? "People could not be processed.");
+      }
+
+      setConfirmation(processSummary(data));
+      setSelectedPersonIds((current) => {
+        const next = new Set(current);
+        for (const person of eligibleTargets) next.delete(person.id);
+        return next;
+      });
+      if (data.acceptance_work_item_id) {
+        setRequestedWorkId(data.acceptance_work_item_id);
+      }
+      await load();
+    } catch (processError) {
+      setError(
+        processError instanceof Error
+          ? processError.message
+          : "People could not be processed.",
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
   async function deletePerson() {
     if (deleteTargets.length === 0) return;
 
@@ -295,6 +354,9 @@ export function PeoplePanel() {
   }
 
   const isChecking = requestedWorkId !== null;
+  const actionableSelectedPeople = selectedPeople.filter((person) =>
+    personAction(person),
+  );
 
   return (
     <Card className="mt-5 shadow-xl shadow-black/40">
@@ -349,15 +411,34 @@ export function PeoplePanel() {
             ))}
           </div>
           {selectedPeople.length > 0 ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => setDeleteTargets(selectedPeople)}
-            >
-              <Trash2 aria-hidden="true" />
-              Delete selected ({selectedPeople.length})
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {actionableSelectedPeople.length > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  aria-busy={isProcessing}
+                  onClick={() => void processPeople(actionableSelectedPeople)}
+                >
+                  {isProcessing ? (
+                    <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <RefreshCw aria-hidden="true" />
+                  )}
+                  {bulkActionLabel(actionableSelectedPeople)}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={() => setDeleteTargets(selectedPeople)}
+              >
+                <Trash2 aria-hidden="true" />
+                Delete selected ({selectedPeople.length})
+              </Button>
+            </div>
           ) : null}
         </div>
 
@@ -386,73 +467,92 @@ export function PeoplePanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visiblePeople.map((person) => (
-                <TableRow
-                  key={person.id}
-                  data-state={
-                    selectedPersonIds.has(person.id) ? "selected" : undefined
-                  }
-                >
-                  <TableCell className="w-12 px-3">
-                    <Checkbox
-                      aria-label={`Select ${person.name}`}
-                      checked={selectedPersonIds.has(person.id)}
-                      onCheckedChange={(checked, eventDetails) => {
-                        togglePersonRange(
-                          person.id,
-                          Boolean(checked),
-                          eventDetails.event,
-                        );
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell className="px-3">
-                    <a
-                      href={person.linkedin_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 hover:underline"
-                    >
-                      {person.name}
-                      <ExternalLink className="size-3" aria-hidden="true" />
-                    </a>
-                  </TableCell>
-                  <TableCell className="px-3">
-                    <State status={person.invitation_status} error={person.invitation_error} />
-                  </TableCell>
-                  <TableCell className="px-3">
-                    <State status={person.message_status} error={person.message_error} />
-                  </TableCell>
-                  <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
-                    {formatDate(person.last_activity_at)}
-                  </TableCell>
-                  <TableCell className="px-2 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Actions for ${person.name}`}
-                          />
-                        }
+              {visiblePeople.map((person) => {
+                const action = personAction(person);
+                const ActionIcon = action?.icon;
+                return (
+                  <TableRow
+                    key={person.id}
+                    data-state={
+                      selectedPersonIds.has(person.id) ? "selected" : undefined
+                    }
+                  >
+                    <TableCell className="w-12 px-3">
+                      <Checkbox
+                        aria-label={`Select ${person.name}`}
+                        checked={selectedPersonIds.has(person.id)}
+                        onCheckedChange={(checked, eventDetails) => {
+                          togglePersonRange(
+                            person.id,
+                            Boolean(checked),
+                            eventDetails.event,
+                          );
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell className="px-3">
+                      <a
+                        href={person.linkedin_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 hover:underline"
                       >
-                        <MoreVertical aria-hidden="true" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setDeleteTargets([person])}
+                        {person.name}
+                        <ExternalLink className="size-3" aria-hidden="true" />
+                      </a>
+                    </TableCell>
+                    <TableCell className="px-3">
+                      <State
+                        status={person.invitation_status}
+                        error={person.invitation_error}
+                      />
+                    </TableCell>
+                    <TableCell className="px-3">
+                      <State
+                        status={person.message_status}
+                        error={person.message_error}
+                      />
+                    </TableCell>
+                    <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
+                      {formatDate(person.last_activity_at)}
+                    </TableCell>
+                    <TableCell className="px-2 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Actions for ${person.name}`}
+                            />
+                          }
                         >
-                          <Trash2 aria-hidden="true" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+                          <MoreVertical aria-hidden="true" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          {action && ActionIcon ? (
+                            <DropdownMenuItem
+                              disabled={isProcessing}
+                              onClick={() => void processPeople([person])}
+                            >
+                              <ActionIcon aria-hidden="true" />
+                              {action.label}
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setDeleteTargets([person])}
+                          >
+                            <Trash2 aria-hidden="true" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
           {visiblePeople.length === 0 ? (
@@ -555,4 +655,55 @@ function formatDate(value: string) {
 
 function personWord(count: number) {
   return count === 1 ? "person" : "people";
+}
+
+function personAction(person: Person) {
+  if (person.available_action === "send_request") {
+    return { id: "send", label: "Send request", icon: Send } as const;
+  }
+  if (person.available_action === "retry_request") {
+    return { id: "retry", label: "Retry request", icon: RefreshCw } as const;
+  }
+  if (person.available_action === "check_status") {
+    return { id: "check", label: "Check status", icon: RefreshCw } as const;
+  }
+  if (person.available_action === "retry_message") {
+    return { id: "retry", label: "Retry message", icon: RefreshCw } as const;
+  }
+  return null;
+}
+
+function bulkActionLabel(people: Person[]) {
+  const actions = new Set(people.map((person) => personAction(person)?.id));
+  const count = people.length;
+  if (actions.size === 1 && actions.has("send")) {
+    return `Send selected (${count})`;
+  }
+  if (actions.size === 1 && actions.has("retry")) {
+    return `Retry selected (${count})`;
+  }
+  if (actions.size === 1 && actions.has("check")) {
+    return `Check selected (${count})`;
+  }
+  return `Process eligible (${count})`;
+}
+
+function processSummary(result: ProcessPeopleResult) {
+  const parts: string[] = [];
+  if (result.invitation_count) {
+    const noun = result.invitation_count === 1 ? "request" : "requests";
+    parts.push(`${result.invitation_count} connection ${noun} queued`);
+  }
+  if (result.message_count) {
+    const noun = result.message_count === 1 ? "message" : "messages";
+    parts.push(`${result.message_count} ${noun} queued`);
+  }
+  if (result.check_count) {
+    const noun = result.check_count === 1 ? "request" : "requests";
+    parts.push(`${result.check_count} pending ${noun} queued for checking`);
+  }
+  if (result.skipped_count) {
+    parts.push(`${result.skipped_count} skipped`);
+  }
+  return parts.length ? `${parts.join(", ")}.` : "No actions were queued.";
 }

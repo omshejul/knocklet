@@ -1,4 +1,5 @@
 from typing import Literal
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -26,6 +27,7 @@ from .message_templates import (
     save_active_template,
 )
 from .models import Person, WorkItem
+from .people_actions import process_people
 
 
 class HealthOut(Schema):
@@ -139,7 +141,21 @@ class OutreachPersonOut(Schema):
     message_status: str
     message_error: str | None
     message_sent_at: str | None
+    available_action: str | None
     last_activity_at: str
+
+
+class ProcessPeopleIn(Schema):
+    person_ids: list[UUID]
+
+
+class ProcessPeopleOut(Schema):
+    requested_count: int
+    invitation_count: int
+    message_count: int
+    check_count: int
+    skipped_count: int
+    acceptance_work_item_id: str | None
 
 
 class MessageTemplateIn(Schema):
@@ -229,6 +245,11 @@ def automation_work_item(request, work_item_id: str):
 @api.get("/people", response=list[OutreachPersonOut])
 def people(request):
     return list_people()
+
+
+@api.post("/people/process", response={202: ProcessPeopleOut})
+def process_selected_people(request, payload: ProcessPeopleIn):
+    return Status(202, process_people(payload.person_ids))
 
 
 @api.get("/logs", response=list[ActivityLogOut])

@@ -180,6 +180,83 @@ class LoginApiTests(TestCase):
             }
         ]
 
+    def test_processes_only_safe_people_actions(self):
+        not_started = Person.objects.create(name="Not started", public_id="new")
+        failed = Person.objects.create(name="Failed", public_id="failed")
+        failed_invitation = Invitation.objects.create(
+            person=failed,
+            status=Invitation.Status.FAILED,
+            error="LinkedIn returned status 429.",
+        )
+        pending = Person.objects.create(name="Pending", public_id="pending")
+        Invitation.objects.create(
+            person=pending,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+        accepted = Person.objects.create(name="Accepted", public_id="accepted")
+        accepted_invitation = Invitation.objects.create(
+            person=accepted,
+            status=Invitation.Status.ACCEPTED,
+        )
+        failed_message = Message.objects.create(
+            invitation=accepted_invitation,
+            body="Hello",
+            status=Message.Status.FAILED,
+            error="LinkedIn returned status 500.",
+        )
+        review = Person.objects.create(name="Review", public_id="review")
+        review_invitation = Invitation.objects.create(
+            person=review,
+            status=Invitation.Status.NEEDS_REVIEW,
+        )
+
+        response = self.client.post(
+            "/api/people/process",
+            data={
+                "person_ids": [
+                    str(not_started.id),
+                    str(failed.id),
+                    str(pending.id),
+                    str(accepted.id),
+                    str(review.id),
+                ]
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        result = response.json()
+        assert result == {
+            "requested_count": 5,
+            "invitation_count": 2,
+            "message_count": 1,
+            "check_count": 1,
+            "skipped_count": 1,
+            "acceptance_work_item_id": result["acceptance_work_item_id"],
+        }
+        assert result["acceptance_work_item_id"] is not None
+        failed_invitation.refresh_from_db()
+        failed_message.refresh_from_db()
+        review_invitation.refresh_from_db()
+        assert failed_invitation.status == Invitation.Status.QUEUED
+        assert failed_message.status == Message.Status.QUEUED
+        assert review_invitation.status == Invitation.Status.NEEDS_REVIEW
+        assert WorkItem.objects.filter(kind=WorkItem.Kind.SEND_INVITATION).count() == 2
+        assert WorkItem.objects.filter(kind=WorkItem.Kind.SEND_MESSAGE).count() == 1
+        assert WorkItem.objects.filter(kind=WorkItem.Kind.CHECK_ACCEPTANCES).count() == 1
+
+        second_response = self.client.post(
+            "/api/people/process",
+            data={"person_ids": [str(not_started.id), str(failed.id), str(accepted.id)]},
+            content_type="application/json",
+        )
+
+        assert second_response.status_code == 202
+        assert second_response.json()["skipped_count"] == 3
+        assert WorkItem.objects.filter(kind=WorkItem.Kind.SEND_INVITATION).count() == 2
+        assert WorkItem.objects.filter(kind=WorkItem.Kind.SEND_MESSAGE).count() == 1
+
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):
         store.approve.return_value = {
