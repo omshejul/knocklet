@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
 from login_api.cli_login import LoginSnapshot, LoginState
@@ -29,3 +30,19 @@ class LoginApiTests(SimpleTestCase):
 
         assert response.status_code == 202
         assert response.json()["status"] == "waiting"
+
+    def test_imports_clay_csv_for_preview(self):
+        csv_file = SimpleUploadedFile(
+            "people.csv",
+            b"Name,LinkedIn URL\nAda Lovelace,https://linkedin.com/in/ada-lovelace\n",
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            "/api/connections/import",
+            {"csv_file": csv_file},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["ready_count"] == 1
+        assert response.json()["people"][0]["name"] == "Ada Lovelace"

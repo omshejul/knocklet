@@ -1,8 +1,15 @@
 from typing import Literal
 
-from ninja import NinjaAPI, Schema, Status
+from ninja import File, NinjaAPI, Schema, Status
+from ninja.files import UploadedFile
 
 from .cli_login import LoginAlreadyRunning, LoginManager
+from .connection_imports import (
+    ConnectionImportStore,
+    CsvImportError,
+    ImportConflict,
+    ImportNotFound,
+)
 
 
 class HealthOut(Schema):
@@ -16,8 +23,35 @@ class LoginStatusOut(Schema):
     updated_at: str
 
 
+class PersonOut(Schema):
+    row_number: int
+    name: str
+    linkedin_url: str
+    public_id: str
+    status: str
+    error: str | None
+
+
+class ConnectionImportOut(Schema):
+    id: str
+    filename: str
+    status: str
+    people: list[PersonOut]
+    ready_count: int
+    sent_count: int
+    failed_count: int
+    skipped_count: int
+    created_at: str
+    completed_at: str | None
+
+
+class ErrorOut(Schema):
+    detail: str
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
+connection_imports = ConnectionImportStore()
 
 
 @api.get("/health", response=HealthOut)
@@ -36,3 +70,36 @@ def start_login(request):
         return Status(202, login_manager.start().to_dict())
     except LoginAlreadyRunning:
         return Status(409, login_manager.status().to_dict())
+
+
+@api.post("/connections/import", response={201: ConnectionImportOut, 400: ErrorOut})
+def import_connections(request, csv_file: File[UploadedFile]):
+    try:
+        connection_import = connection_imports.create(csv_file.read(), csv_file.name)
+        return Status(201, connection_import)
+    except CsvImportError as error:
+        return Status(400, {"detail": str(error)})
+
+
+@api.get(
+    "/connections/import/{import_id}",
+    response={200: ConnectionImportOut, 404: ErrorOut},
+)
+def connection_import_status(request, import_id: str):
+    try:
+        return connection_imports.get(import_id)
+    except ImportNotFound:
+        return Status(404, {"detail": "Import not found."})
+
+
+@api.post(
+    "/connections/import/{import_id}/approve",
+    response={202: ConnectionImportOut, 404: ErrorOut, 409: ErrorOut},
+)
+def approve_connection_import(request, import_id: str):
+    try:
+        return Status(202, connection_imports.approve(import_id))
+    except ImportNotFound:
+        return Status(404, {"detail": "Import not found."})
+    except ImportConflict:
+        return Status(409, {"detail": "Import cannot be sent."})

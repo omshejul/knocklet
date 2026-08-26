@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ConnectionImportPanel } from "@/components/connection-import-panel";
 
 type ApiStatus = "idle" | "waiting" | "authenticated" | "failed";
 type ViewStatus = ApiStatus | "loading" | "unavailable";
@@ -113,10 +114,22 @@ export function LoginPanel() {
   const isBusy = status === "loading" || status === "waiting" || isStarting;
   const isAuthenticated = status === "authenticated";
 
+  if (isAuthenticated) {
+    return (
+      <section
+        aria-label="LinkedIn connection requests"
+        className="mt-8 border-t border-border pt-6"
+      >
+        <p className="text-sm text-muted-foreground">Signed in.</p>
+        <ConnectionImportPanel />
+      </section>
+    );
+  }
+
   return (
     <section
       aria-label="LinkedIn login"
-      className="mt-8 border-t border-border pt-6"
+      className="mt-8 max-w-sm border-t border-border pt-6"
     >
       <div className="min-h-6" aria-live="polite" aria-atomic="true">
         <AnimatePresence mode="wait" initial={false}>
@@ -133,12 +146,12 @@ export function LoginPanel() {
       <Button
         type="button"
         size="lg"
-        disabled={isBusy || isAuthenticated}
+        disabled={isBusy}
         onClick={startLogin}
         aria-busy={isBusy}
         className="mt-5 h-11 w-full rounded-md bg-linkedin px-4 text-[0.95rem] text-white hover:bg-linkedin-hover focus-visible:ring-linkedin/30"
       >
-        <span>{isAuthenticated ? "Signed in" : "Log in with LinkedIn"}</span>
+        <span>Log in with LinkedIn</span>
         {isBusy ? (
           <LoaderCircle className="animate-spin" aria-hidden="true" />
         ) : null}
