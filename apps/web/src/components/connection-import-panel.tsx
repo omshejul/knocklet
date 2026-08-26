@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { LoaderCircle, UploadCloud, X } from "lucide-react";
+import { CircleCheck, LoaderCircle, UploadCloud, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -79,6 +79,13 @@ type ConnectionImport = {
   completed_at: string | null;
 };
 
+type AcceptanceRefreshResult = {
+  checked_count: number;
+  accepted_count: number;
+  pending_count: number;
+  checked_at: string;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -142,6 +149,8 @@ export function ConnectionImportPanel({
   const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
+  const [acceptanceResult, setAcceptanceResult] =
+    useState<AcceptanceRefreshResult | null>(null);
   const [error, setError] = useState("");
   const activeImportId = connectionImport?.id;
   const activeImportStatus = connectionImport?.status;
@@ -270,15 +279,23 @@ export function ConnectionImportPanel({
 
   async function refreshAcceptance() {
     setIsCheckingAcceptance(true);
+    setAcceptanceResult(null);
     setError("");
     try {
       const response = await fetch(apiUrl + "/connections/acceptance/refresh", {
         method: "POST",
       });
-      const data = await response.json();
+      const data = (await response.json()) as
+        | AcceptanceRefreshResult
+        | { detail: string };
       if (!response.ok) {
-        throw new Error(data.detail || "Accepted invitations could not be checked.");
+        throw new Error(
+          "detail" in data
+            ? data.detail
+            : "Accepted invitations could not be checked.",
+        );
       }
+      setAcceptanceResult(data as AcceptanceRefreshResult);
       const imports = await fetchImportHistory();
       setHistory(imports);
       setConnectionImport((current) =>
@@ -308,6 +325,9 @@ export function ConnectionImportPanel({
   const hasPendingAcceptance = activity.some(
     ({ person }) => person.status === "sent",
   );
+  const sentInvitationCount = activity.filter(
+    ({ person }) => person.status === "sent",
+  ).length;
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -480,6 +500,40 @@ export function ConnectionImportPanel({
                 </Button>
               </div>
 
+              <AnimatePresence mode="wait" initial={false}>
+                {isCheckingAcceptance ? (
+                  <motion.p
+                    key="checking"
+                    {...appear(reducedMotion)}
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="text-sm text-muted-foreground"
+                  >
+                    Checking {sentInvitationCount} sent{" "}
+                    {pluralize("invitation", sentInvitationCount)} against your
+                    LinkedIn connections.
+                  </motion.p>
+                ) : acceptanceResult ? (
+                  <motion.div
+                    key={acceptanceResult.checked_at}
+                    {...appear(reducedMotion)}
+                  >
+                    <Alert
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                      className="border-success/30 bg-success/10 text-success"
+                    >
+                      <CircleCheck aria-hidden="true" />
+                      <AlertDescription className="text-success">
+                        {acceptanceSummary(acceptanceResult)}
+                      </AlertDescription>
+                    </Alert>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+
               {error ? (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
@@ -576,4 +630,12 @@ function formatDate(value: string | null) {
     return "-";
   }
   return dateFormatter.format(new Date(value));
+}
+
+function acceptanceSummary(result: AcceptanceRefreshResult) {
+  return `Finished. ${result.checked_count} ${pluralize("invitation", result.checked_count)} checked, ${result.accepted_count} newly accepted, ${result.pending_count} still pending.`;
+}
+
+function pluralize(noun: string, count: number) {
+  return count === 1 ? noun : `${noun}s`;
 }
