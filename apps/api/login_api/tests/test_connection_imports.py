@@ -113,12 +113,35 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         completed = store.wait(connection_import["id"])
 
         assert client.public_ids == ["grace"]
-        assert [person["status"] for person in completed["people"]] == [
-            "skipped",
-            "sent",
-        ]
-        assert completed["skipped_count"] == 1
+        assert [person["status"] for person in completed["people"]] == ["sent"]
+        assert completed["skipped_count"] == 0
         assert completed["total_count"] == 1
+
+    def test_approval_forgets_every_unselected_row(self):
+        store = ConnectionImportStore(client_factory=FakeLinkedInClient)
+        rows = "".join(
+            f"Person {index},https://linkedin.com/in/person-{index}\n"
+            for index in range(1, 11)
+        )
+        connection_import = store.create(
+            f"Name,LinkedIn URL\n{rows}".encode(),
+            "people.csv",
+        )
+
+        store.approve(connection_import["id"], row_numbers=[2, 4, 6, 8, 10])
+        reopened = ConnectionImportStore().get(connection_import["id"])
+
+        assert [person["row_number"] for person in reopened["people"]] == [
+            2,
+            4,
+            6,
+            8,
+            10,
+        ]
+        assert reopened["total_count"] == 5
+        assert ConnectionRequest.objects.filter(
+            connection_import_id=connection_import["id"]
+        ).count() == 5
 
     def test_approval_sends_only_ready_people(self):
         client = FakeLinkedInClient()
@@ -134,7 +157,7 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         assert client.public_ids == ["ada"]
         assert completed["status"] == "complete"
         assert completed["sent_count"] == 1
-        assert completed["skipped_count"] == 1
+        assert completed["skipped_count"] == 0
         assert completed["progress_percent"] == 100
 
     def test_import_survives_store_restart(self):

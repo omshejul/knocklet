@@ -351,10 +351,9 @@ class ConnectionImportStore:
                 raise ImportConflict
 
             ready_ids = list(selected_requests.values_list("id", flat=True))
-            ready_requests.exclude(row_number__in=selected_rows).update(
-                status=ConnectionRequest.Status.SKIPPED,
-                error="Not selected.",
-            )
+            connection_import.requests.exclude(
+                row_number__in=selected_rows
+            ).delete()
 
             connection_import.status = ConnectionImport.Status.CHECKING
             connection_import.approved_at = timezone.now()
