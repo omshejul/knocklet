@@ -1186,6 +1186,88 @@ class LinkedinClient:
             })
         return normalized
 
+    def get_sent_invitation_public_ids(self, max_results=1000) -> set[str]:
+        """Return public IDs with a pending sent connection invitation."""
+        public_ids = set()
+        start = 0
+        page_size = 100
+
+        while start < max_results:
+            count = min(page_size, max_results - start)
+            data = self._api_get(
+                "/relationships/sentInvitationViewsV2"
+                f"?start={start}&count={count}"
+                "&invitationType=CONNECTION&q=invitationType"
+            )
+            root = data.get("data", data)
+            elements = root.get("elements") or root.get("*elements")
+            if elements is None and start == 0:
+                data = self._api_get(
+                    "/relationships/invitationViews"
+                    f"?start={start}&count={count}"
+                    "&includeInsights=true&q=sentInvitation"
+                )
+                root = data.get("data", data)
+                elements = root.get("elements") or root.get("*elements")
+            if elements is None:
+                raise RuntimeError("Pending invitations could not be checked.")
+
+            included = data.get("included", [])
+            index = {
+                item.get("entityUrn"): item
+                for item in included
+                if item.get("entityUrn")
+            }
+            for element in elements:
+                invitation = index.get(element, {}) if isinstance(element, str) else element
+                if not isinstance(invitation, dict):
+                    continue
+                invitation = invitation.get("invitation", invitation)
+                invitee = (
+                    invitation.get("toMember")
+                    or invitation.get("inviteeProfile")
+                    or invitation.get("invitee")
+                    or {}
+                )
+                if isinstance(invitee, str):
+                    invitee = index.get(invitee, {})
+                public_id = invitee.get("publicIdentifier", "")
+                if not public_id:
+                    profile_url = invitee.get("navigationUrl", "")
+                    if "/in/" in profile_url:
+                        public_id = profile_url.split("/in/", 1)[1].split("?", 1)[0].strip("/")
+                if public_id:
+                    public_ids.add(public_id.casefold())
+
+            start += len(elements)
+            paging = root.get("paging", {})
+            total = paging.get("total")
+            if len(elements) < count or (isinstance(total, int) and start >= total):
+                break
+
+        return public_ids
+
+    def get_connection_state(self, public_profile_id: str) -> str:
+        """Return connected, not_connected, or unknown for one profile."""
+        data = self.get_profile_network_info(public_profile_id)
+        root = data.get("data", data)
+        distance = root.get("distance")
+        if isinstance(distance, str):
+            included_by_id = {
+                item.get("$id"): item
+                for item in data.get("included", [])
+                if item.get("$id")
+            }
+            distance = included_by_id.get(distance, distance)
+        if isinstance(distance, dict):
+            distance = distance.get("value")
+
+        if distance == "DISTANCE_1":
+            return "connected"
+        if distance in {"DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"}:
+            return "not_connected"
+        return "unknown"
+
     def add_connection(self, profile_public_id: str, message="", profile_urn=None):
         import base64
         import os
