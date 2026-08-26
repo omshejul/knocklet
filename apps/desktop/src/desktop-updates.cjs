@@ -24,7 +24,7 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
   function install() {
     setQuitting(true);
     try {
-      manager.installUpdate();
+      return manager.installUpdate();
     } catch (error) {
       setQuitting(false);
       throw error;
@@ -49,6 +49,9 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
     }
     if (state.status === "downloaded") {
       return { label: "Restart to Update", click: () => run(install) };
+    }
+    if (state.status === "installing") {
+      return { label: "Installing Update...", enabled: false };
     }
     if (state.status === "unavailable") {
       return { label: "Updates require the installed app", enabled: false };
@@ -96,7 +99,7 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
 
   function checkAutomatically() {
     const status = manager.getState().status;
-    if (["available", "downloading", "downloaded"].includes(status)) return;
+    if (["available", "downloading", "downloaded", "installing"].includes(status)) return;
     manager.checkForUpdates().catch((error) => {
       console.error(`Automatic update check failed: ${error.message}`);
     });
@@ -126,8 +129,7 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
   ipcMain.handle("updates:check", () => manager.checkForUpdates());
   ipcMain.handle("updates:download", () => manager.downloadUpdate());
   ipcMain.handle("updates:install", () => {
-    install();
-    return manager.getState();
+    return install();
   });
 
   return { dispose, start };
