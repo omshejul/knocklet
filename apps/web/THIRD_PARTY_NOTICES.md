@@ -24,3 +24,11 @@
 - Retrieved: 2026-08-26
 - License terms: https://www.shadcnblocks.com/license
 - Adapted content: per-row action menu in `src/components/people-panel.tsx`
+
+## Shadcnblocks sheet navigation
+
+- Source: https://www.shadcnblocks.com/block/sheet-sheet-navigation-2
+- Registry item: `@shadcnblocks/sheet-sheet-navigation-2`
+- Retrieved: 2026-08-26
+- License terms: https://www.shadcnblocks.com/license
+- Adapted content: mobile dashboard navigation in `src/components/dashboard-shell.tsx`

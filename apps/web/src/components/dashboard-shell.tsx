@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Menu,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -13,6 +14,12 @@ import { ConnectionImportPanel } from "@/components/connection-import-panel";
 import { MessagesPanel } from "@/components/messages-panel";
 import { PeoplePanel } from "@/components/people-panel";
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const sections = [
@@ -26,6 +33,7 @@ type DashboardSection = (typeof sections)[number]["id"];
 export function DashboardShell() {
   const [section, setSection] = useState<DashboardSection>("send");
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   return (
     <div
@@ -36,7 +44,55 @@ export function DashboardShell() {
           : "md:grid-cols-[14rem_minmax(0,1fr)]",
       )}
     >
-      <aside className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:h-screen md:border-r md:border-b-0">
+      <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-sidebar-border bg-sidebar/95 px-4 text-sidebar-foreground backdrop-blur md:hidden">
+        <p className="text-lg font-normal">Knocklet</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => setIsMobileNavOpen(true)}
+          aria-label="Open navigation"
+          aria-expanded={isMobileNavOpen}
+          className="size-11"
+        >
+          <Menu aria-hidden="true" />
+        </Button>
+        <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
+          <SheetContent side="left">
+            <SheetHeader>
+              <SheetTitle>Knocklet</SheetTitle>
+            </SheetHeader>
+            <nav aria-label="Dashboard" className="flex flex-col gap-1 px-3">
+              {sections.map((item) => {
+                const Icon = item.icon;
+                const isActive = section === item.id;
+                return (
+                  <Button
+                    key={item.id}
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setSection(item.id);
+                      setIsMobileNavOpen(false);
+                    }}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "min-h-11 justify-start px-3 text-muted-foreground",
+                      isActive &&
+                        "bg-sidebar-accent text-sidebar-accent-foreground",
+                    )}
+                  >
+                    <Icon aria-hidden="true" />
+                    {item.label}
+                  </Button>
+                );
+              })}
+            </nav>
+          </SheetContent>
+        </Sheet>
+      </header>
+
+      <aside className="hidden border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:block md:h-screen md:border-r">
         <div className="mx-auto flex max-w-5xl flex-col items-stretch gap-3 px-4 py-3 md:h-full md:px-3 md:py-5">
           <div
             className={cn(
@@ -105,7 +161,7 @@ export function DashboardShell() {
         </div>
       </aside>
 
-      <main className="min-w-0 px-5 py-8 sm:px-8 md:py-10">
+      <main className="min-w-0 px-4 py-6 sm:px-8 md:py-10">
         <div className="mx-auto w-full max-w-5xl">
           {section !== "messages" ? (
             <h1 className="text-2xl font-normal tracking-tight">
