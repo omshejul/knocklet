@@ -32,6 +32,8 @@ Click "Log in with LinkedIn". A separate Chrome window opens because LinkedIn bl
 
 After login, choose a Clay CSV and click "Preview CSV". The importer accepts a `LinkedIn URL`, `LinkedIn Profile URL`, or `LinkedIn` column. Names can come from `Name`, `Full Name`, or separate `First Name` and `Last Name` columns. Review every row, then use the send button to approve the valid requests.
 
+Approval first loads sent invitations and checks each remaining profile. Pending invitations and existing connections are skipped. Only confirmed non-connections are sent, with visible checking and sending progress.
+
 Imports are limited to 100 non-empty rows and 2 MB. Imports, people, send results, and acceptance checks survive API and app restarts.
 
 ## Local data
@@ -75,7 +77,7 @@ POST /api/connections/acceptance/refresh
 
 `POST /api/auth/login` launches the existing `python apps/cli/main.py login` flow in a background thread. The status endpoint returns `idle`, `waiting`, `authenticated`, or `failed`.
 
-The import endpoint only parses and previews the CSV. Requests start only after the approve endpoint is called. They are sent sequentially through the existing CLI client.
+The import endpoint only parses and previews the CSV. Requests start only after the approve endpoint is called. Preflight checks run first, then eligible requests are sent sequentially through the existing CLI client.
 
 ## Checks
 
