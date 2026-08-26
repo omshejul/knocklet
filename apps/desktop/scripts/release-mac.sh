@@ -34,5 +34,5 @@ ASC_UPLOAD_TIMEOUT=10m asc notarization submit \
 
 xcrun stapler staple "$dmg_path"
 xcrun stapler validate "$dmg_path"
-spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
+spctl --assess --type execute --verbose=4 "$app_path"
 shasum -a 256 "$dmg_path"
