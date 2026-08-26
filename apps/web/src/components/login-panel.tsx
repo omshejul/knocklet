@@ -4,9 +4,9 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { DashboardShell } from "@/components/dashboard-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ConnectionImportPanel } from "@/components/connection-import-panel";
 
 type ApiStatus = "idle" | "waiting" | "authenticated" | "failed";
 type ViewStatus = ApiStatus | "loading" | "unavailable";
@@ -116,52 +116,50 @@ export function LoginPanel() {
   const isAuthenticated = status === "authenticated";
 
   if (isAuthenticated) {
-    return (
-      <section
-        aria-label="LinkedIn connection requests"
-        className="mt-6"
-      >
-        <p className="text-sm text-muted-foreground">Signed in.</p>
-        <ConnectionImportPanel />
-      </section>
-    );
+    return <DashboardShell />;
   }
 
   return (
-    <section aria-label="LinkedIn login" className="mt-6 max-w-sm">
-      <Card className="shadow-xl shadow-black/40">
-        <CardContent className="px-4">
-          <div className="min-h-6" aria-live="polite" aria-atomic="true">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={status}
-                {...appear(reducedMotion)}
-                className="text-sm text-muted-foreground"
-              >
-                {viewCopy[status]}
-              </motion.div>
-            </AnimatePresence>
-          </div>
+    <section
+      aria-label="LinkedIn login"
+      className="grid min-h-screen place-items-center px-5 py-12"
+    >
+      <div className="min-w-0 w-full max-w-sm">
+        <h1 className="text-3xl font-bold tracking-tight">LinkedIn</h1>
+        <Card className="mt-6 shadow-xl shadow-black/40">
+          <CardContent className="px-4">
+            <div className="min-h-6" aria-live="polite" aria-atomic="true">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={status}
+                  {...appear(reducedMotion)}
+                  className="text-sm text-muted-foreground"
+                >
+                  {viewCopy[status]}
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
-          <Button
-            type="button"
-            size="lg"
-            disabled={isBusy}
-            onClick={startLogin}
-            aria-busy={isBusy}
-            className="mt-5 h-11 w-full text-[0.95rem]"
-          >
-            <span>Log in with LinkedIn</span>
-            {isBusy ? (
-              <LoaderCircle className="animate-spin" aria-hidden="true" />
-            ) : null}
-          </Button>
+            <Button
+              type="button"
+              size="lg"
+              disabled={isBusy}
+              onClick={startLogin}
+              aria-busy={isBusy}
+              className="mt-5 h-11 w-full text-[0.95rem]"
+            >
+              <span>Log in with LinkedIn</span>
+              {isBusy ? (
+                <LoaderCircle className="animate-spin" aria-hidden="true" />
+              ) : null}
+            </Button>
 
-          <p className="mt-3 text-xs text-muted-foreground">
-            Opens Chrome on this Mac.
-          </p>
-        </CardContent>
-      </Card>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Opens Chrome on this Mac.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </section>
   );
 }

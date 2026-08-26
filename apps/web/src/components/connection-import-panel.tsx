@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LoaderCircle, UploadCloud, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -42,6 +42,8 @@ type PersonStatus =
   | "sent"
   | "accepted"
   | "failed";
+
+export type DashboardSection = "send" | "history";
 
 type ImportedPerson = {
   row_number: number;
@@ -118,6 +120,9 @@ function appear(reduced: boolean | null) {
     animate: reduced
       ? { opacity: 1 }
       : { opacity: 1, y: 0, filter: "blur(0px)" },
+    exit: reduced
+      ? { opacity: 0 }
+      : { opacity: 0, y: 8, filter: "blur(10px)" },
     transition: {
       duration: reduced ? 0.01 : 0.2,
       ease: "easeOut" as const,
@@ -125,7 +130,11 @@ function appear(reduced: boolean | null) {
   };
 }
 
-export function ConnectionImportPanel() {
+export function ConnectionImportPanel({
+  section,
+}: {
+  section: DashboardSection;
+}) {
   const reducedMotion = useReducedMotion();
   const [file, setFile] = useState<File | null>(null);
   const [connectionImport, setConnectionImport] =
@@ -301,149 +310,158 @@ export function ConnectionImportPanel() {
   );
 
   return (
-    <motion.div {...appear(reducedMotion)} className="mt-5">
-      <Card className="shadow-xl shadow-black/40">
-        <CardContent className="space-y-4 px-4 sm:px-5">
-          <form onSubmit={importCsv} className="space-y-3">
-            <FileUpload
-              value={file ? [file] : []}
-              onValueChange={(files) => {
-                setFile(files[0] ?? null);
-                setConnectionImport(null);
-                setError("");
-              }}
-              onFileReject={(_, message) => {
-                setError(
-                  message === "File too large"
-                    ? "CSV must be smaller than 2 MB."
-                    : "Choose a CSV file.",
-                );
-              }}
-              accept=".csv,text/csv"
-              maxFiles={1}
-              maxSize={2 * 1024 * 1024}
-              label="Clay CSV"
-              disabled={
-                isUploading || isRunning(connectionImport)
-              }
-            >
-              {!file ? (
-                <FileUploadDropzone className="min-h-36 rounded-xl border border-dashed bg-muted/20 px-4 py-8 hover:bg-muted/35 data-dragging:border-primary data-dragging:bg-muted/50">
-                  <UploadCloud className="size-6 text-muted-foreground" aria-hidden="true" />
-                  <p className="text-center text-sm font-bold">
-                    Drop CSV or click to browse
-                  </p>
-                  <p className="text-xs text-muted-foreground">2 MB max</p>
-                </FileUploadDropzone>
-              ) : null}
-
-              <FileUploadList>
-                {file ? (
-                  <FileUploadItem
-                    value={file}
-                    className="rounded-xl bg-muted/20"
-                  >
-                    <FileUploadItemPreview className="size-10 rounded-lg [&>svg]:size-5" />
-                    <FileUploadItemMetadata />
-                    <FileUploadItemDelete
-                      aria-label="Remove CSV"
-                      className={buttonVariants({
-                        variant: "outline",
-                        size: "icon",
-                      })}
-                    >
-                      <X aria-hidden="true" />
-                    </FileUploadItemDelete>
-                  </FileUploadItem>
-                ) : null}
-              </FileUploadList>
-            </FileUpload>
-
-            <Button
-              type="submit"
-              size="lg"
-              disabled={
-                !file || isUploading || isRunning(connectionImport)
-              }
-              className="h-11 w-full"
-            >
-              Preview CSV
-            </Button>
-          </form>
-
-          {error ? (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          {connectionImport ? (
-            <motion.div {...appear(reducedMotion)} className="space-y-3">
-              {isRunning(connectionImport) ? (
-                <Progress
-                  value={connectionImport.progress_percent}
-                  aria-label={`${phaseLabel(connectionImport)} progress`}
-                  className="gap-2"
+    <AnimatePresence mode="wait" initial={false}>
+      {section === "send" ? (
+        <motion.div key="send" {...appear(reducedMotion)} className="mt-5">
+          <Card className="shadow-xl shadow-black/40">
+            <CardContent className="space-y-4 px-4 sm:px-5">
+              <form onSubmit={importCsv} className="space-y-3">
+                <FileUpload
+                  value={file ? [file] : []}
+                  onValueChange={(files) => {
+                    setFile(files[0] ?? null);
+                    setConnectionImport(null);
+                    setError("");
+                  }}
+                  onFileReject={(_, message) => {
+                    setError(
+                      message === "File too large"
+                        ? "CSV must be smaller than 2 MB."
+                        : "Choose a CSV file.",
+                    );
+                  }}
+                  accept=".csv,text/csv"
+                  maxFiles={1}
+                  maxSize={2 * 1024 * 1024}
+                  label="Clay CSV"
+                  disabled={isUploading || isRunning(connectionImport)}
                 >
-                  <ProgressLabel>{summary(connectionImport)}</ProgressLabel>
-                  <ProgressValue />
-                </Progress>
-              ) : (
-                <p className="text-sm text-muted-foreground" aria-live="polite">
-                  {summary(connectionImport)}
-                </p>
-              )}
+                  {!file ? (
+                    <FileUploadDropzone className="min-h-36 rounded-xl border border-dashed bg-muted/20 px-4 py-8 hover:bg-muted/35 data-dragging:border-primary data-dragging:bg-muted/50">
+                      <UploadCloud
+                        className="size-6 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <p className="text-center text-sm font-bold">
+                        Drop CSV or click to browse
+                      </p>
+                      <p className="text-xs text-muted-foreground">2 MB max</p>
+                    </FileUploadDropzone>
+                  ) : null}
 
-              <div
-                className="overflow-hidden rounded-xl border"
-                aria-label="CSV people"
-              >
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead className="px-3 font-bold">Name</TableHead>
-                      <TableHead className="px-3 font-bold">LinkedIn</TableHead>
-                      <TableHead className="px-3 font-bold">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {connectionImport.people.map((person) => (
-                      <TableRow key={person.row_number}>
-                        <TableCell className="px-3">{person.name}</TableCell>
-                        <TableCell className="px-3 font-mono text-xs">
-                          {person.public_id || "-"}
-                        </TableCell>
-                        <TableCell className="px-3">
-                          <StatusBadge status={person.status} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  <FileUploadList>
+                    {file ? (
+                      <FileUploadItem
+                        value={file}
+                        className="rounded-xl bg-muted/20"
+                      >
+                        <FileUploadItemPreview className="size-10 rounded-lg [&>svg]:size-5" />
+                        <FileUploadItemMetadata />
+                        <FileUploadItemDelete
+                          aria-label="Remove CSV"
+                          className={buttonVariants({
+                            variant: "outline",
+                            size: "icon",
+                          })}
+                        >
+                          <X aria-hidden="true" />
+                        </FileUploadItemDelete>
+                      </FileUploadItem>
+                    ) : null}
+                  </FileUploadList>
+                </FileUpload>
 
-              {connectionImport.status === "awaiting_approval" &&
-              connectionImport.ready_count > 0 ? (
                 <Button
-                  type="button"
+                  type="submit"
                   size="lg"
-                  onClick={approveImport}
-                  className="h-11 w-full sm:w-auto"
+                  disabled={!file || isUploading || isRunning(connectionImport)}
+                  className="h-11 w-full"
                 >
-                  Send {connectionImport.ready_count} connection requests
+                  Preview CSV
                 </Button>
-              ) : null}
-            </motion.div>
-          ) : null}
-        </CardContent>
-      </Card>
+              </form>
 
-      {activity.length > 0 ? (
-        <motion.div {...appear(reducedMotion)} className="mt-5">
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {connectionImport ? (
+                <motion.div {...appear(reducedMotion)} className="space-y-3">
+                  {isRunning(connectionImport) ? (
+                    <Progress
+                      value={connectionImport.progress_percent}
+                      aria-label={`${phaseLabel(connectionImport)} progress`}
+                      className="gap-2"
+                    >
+                      <ProgressLabel>{summary(connectionImport)}</ProgressLabel>
+                      <ProgressValue />
+                    </Progress>
+                  ) : (
+                    <p
+                      className="text-sm text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      {summary(connectionImport)}
+                    </p>
+                  )}
+
+                  <div
+                    className="overflow-hidden rounded-xl border"
+                    aria-label="CSV people"
+                  >
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="px-3 font-bold">Name</TableHead>
+                          <TableHead className="px-3 font-bold">
+                            LinkedIn
+                          </TableHead>
+                          <TableHead className="px-3 font-bold">
+                            Status
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {connectionImport.people.map((person) => (
+                          <TableRow key={person.row_number}>
+                            <TableCell className="px-3">
+                              {person.name}
+                            </TableCell>
+                            <TableCell className="px-3 font-mono text-xs">
+                              {person.public_id || "-"}
+                            </TableCell>
+                            <TableCell className="px-3">
+                              <StatusBadge status={person.status} />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {connectionImport.status === "awaiting_approval" &&
+                  connectionImport.ready_count > 0 ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      onClick={approveImport}
+                      className="h-11 w-full sm:w-auto"
+                    >
+                      Send {connectionImport.ready_count} connection requests
+                    </Button>
+                  ) : null}
+                </motion.div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </motion.div>
+      ) : (
+        <motion.div key="history" {...appear(reducedMotion)} className="mt-5">
           <Card className="shadow-xl shadow-black/40">
             <CardContent className="space-y-3 px-4 sm:px-5">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-bold">History</h2>
+              <div className="flex justify-end">
                 <Button
                   type="button"
                   variant="outline"
@@ -462,40 +480,52 @@ export function ConnectionImportPanel() {
                 </Button>
               </div>
 
-              <div
-                className="overflow-hidden rounded-xl border"
-                aria-label="Invitation history"
-              >
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead className="px-3 font-bold">Name</TableHead>
-                      <TableHead className="px-3 font-bold">Status</TableHead>
-                      <TableHead className="px-3 text-right font-bold">
-                        Sent
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activity.map(({ importId, person }) => (
-                      <TableRow key={`${importId}:${person.row_number}`}>
-                        <TableCell className="px-3">{person.name}</TableCell>
-                        <TableCell className="px-3">
-                          <StatusBadge status={person.status} />
-                        </TableCell>
-                        <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
-                          {formatDate(person.sent_at)}
-                        </TableCell>
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {activity.length > 0 ? (
+                <div
+                  className="overflow-hidden rounded-xl border"
+                  aria-label="Invitation history"
+                >
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableHead className="px-3 font-bold">Name</TableHead>
+                        <TableHead className="px-3 font-bold">Status</TableHead>
+                        <TableHead className="px-3 text-right font-bold">
+                          Sent
+                        </TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {activity.map(({ importId, person }) => (
+                        <TableRow key={`${importId}:${person.row_number}`}>
+                          <TableCell className="px-3">{person.name}</TableCell>
+                          <TableCell className="px-3">
+                            <StatusBadge status={person.status} />
+                          </TableCell>
+                          <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
+                            {formatDate(person.sent_at)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No requests yet.
+                </p>
+              )}
             </CardContent>
           </Card>
         </motion.div>
-      ) : null}
-    </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
