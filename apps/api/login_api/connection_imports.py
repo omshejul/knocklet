@@ -2,6 +2,7 @@ import csv
 import io
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone as datetime_timezone
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
@@ -24,6 +25,10 @@ class ImportNotFound(Exception):
 
 
 class ImportConflict(Exception):
+    pass
+
+
+class AcceptanceCheckError(Exception):
     pass
 
 
@@ -238,6 +243,10 @@ class ConnectionImportStore:
             raise ImportNotFound from None
         return self._snapshot(connection_import)
 
+    def list_imports(self, limit: int = 20) -> list[dict]:
+        imports = ConnectionImport.objects.prefetch_related("requests")[:limit]
+        return [self._snapshot(connection_import) for connection_import in imports]
+
     def approve(self, import_id: str) -> dict:
         with transaction.atomic():
             try:
@@ -278,6 +287,69 @@ class ConnectionImportStore:
         if thread is not None:
             thread.join(timeout)
         return self.get(import_id)
+
+    def refresh_acceptance(self) -> dict:
+        sent_requests = list(
+            ConnectionRequest.objects.filter(
+                status=ConnectionRequest.Status.SENT,
+                sent_at__isnull=False,
+            ).order_by("sent_at")
+        )
+        checked_at = timezone.now()
+        if not sent_requests:
+            return {
+                "checked_count": 0,
+                "accepted_count": 0,
+                "pending_count": 0,
+                "checked_at": checked_at.isoformat(),
+            }
+
+        since_ms = int(sent_requests[0].sent_at.timestamp() * 1000)
+        try:
+            client = self.client_factory()
+            recent_connections = client.get_recent_connections(
+                max_results=1000,
+                since_ms=since_ms,
+            )
+        except Exception as error:
+            raise AcceptanceCheckError(
+                str(error) or "LinkedIn connections could not be checked."
+            ) from error
+
+        connected_by_public_id = {
+            connection.get("public_id", "").casefold(): connection
+            for connection in recent_connections
+            if connection.get("public_id")
+        }
+        accepted_count = 0
+        for connection_request in sent_requests:
+            connection_request.checked_at = checked_at
+            connection = connected_by_public_id.get(
+                connection_request.public_id.casefold()
+            )
+            if connection:
+                connected_at = connection.get("connected_at")
+                connection_request.status = ConnectionRequest.Status.ACCEPTED
+                connection_request.accepted_at = (
+                    datetime.fromtimestamp(
+                        connected_at / 1000,
+                        tz=datetime_timezone.utc,
+                    )
+                    if isinstance(connected_at, int)
+                    else checked_at
+                )
+                accepted_count += 1
+
+        ConnectionRequest.objects.bulk_update(
+            sent_requests,
+            ["status", "accepted_at", "checked_at"],
+        )
+        return {
+            "checked_count": len(sent_requests),
+            "accepted_count": accepted_count,
+            "pending_count": len(sent_requests) - accepted_count,
+            "checked_at": checked_at.isoformat(),
+        }
 
     def _send_requests(self, import_id: str, request_ids: list[int]) -> None:
         close_old_connections()

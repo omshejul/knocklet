@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase, TransactionTestCase
 
 from login_api.connection_imports import ConnectionImportStore, parse_clay_csv
+from login_api.models import ConnectionRequest
 
 
 class FakeLinkedInClient:
@@ -10,6 +11,16 @@ class FakeLinkedInClient:
     def add_connection(self, profile_public_id: str):
         self.public_ids.append(profile_public_id)
         return {"status": 201}
+
+
+class FakeAcceptanceClient:
+    def get_recent_connections(self, max_results, since_ms):
+        return [
+            {
+                "public_id": "ada",
+                "connected_at": since_ms + 1_000,
+            }
+        ]
 
 
 class ConnectionImportParsingTests(SimpleTestCase):
@@ -81,3 +92,22 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
 
         assert second_import["people"][0]["status"] == "duplicate"
         assert second_import["skipped_count"] == 1
+
+    def test_refresh_acceptance_persists_new_connections(self):
+        sender = FakeLinkedInClient()
+        store = ConnectionImportStore(client_factory=lambda: sender)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\nGrace,https://linkedin.com/in/grace\n",
+            "people.csv",
+        )
+        store.approve(connection_import["id"])
+        store.wait(connection_import["id"])
+
+        result = ConnectionImportStore(
+            client_factory=lambda: FakeAcceptanceClient()
+        ).refresh_acceptance()
+
+        assert result["checked_count"] == 2
+        assert result["accepted_count"] == 1
+        assert ConnectionRequest.objects.get(public_id="ada").status == "accepted"
+        assert ConnectionRequest.objects.get(public_id="grace").checked_at is not None

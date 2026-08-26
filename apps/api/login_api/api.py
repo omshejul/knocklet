@@ -5,6 +5,7 @@ from ninja.files import UploadedFile
 
 from .cli_login import LoginAlreadyRunning, LoginManager
 from .connection_imports import (
+    AcceptanceCheckError,
     ConnectionImportStore,
     CsvImportError,
     ImportConflict,
@@ -55,6 +56,13 @@ class ErrorOut(Schema):
     detail: str
 
 
+class AcceptanceRefreshOut(Schema):
+    checked_count: int
+    accepted_count: int
+    pending_count: int
+    checked_at: str
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -85,6 +93,22 @@ def import_connections(request, csv_file: File[UploadedFile]):
         return Status(201, connection_import)
     except CsvImportError as error:
         return Status(400, {"detail": str(error)})
+
+
+@api.get("/connections/imports", response=list[ConnectionImportOut])
+def connection_import_history(request):
+    return connection_imports.list_imports()
+
+
+@api.post(
+    "/connections/acceptance/refresh",
+    response={200: AcceptanceRefreshOut, 502: ErrorOut},
+)
+def refresh_connection_acceptance(request):
+    try:
+        return connection_imports.refresh_acceptance()
+    except AcceptanceCheckError as error:
+        return Status(502, {"detail": str(error)})
 
 
 @api.get(
