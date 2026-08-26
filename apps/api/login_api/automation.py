@@ -327,6 +327,7 @@ def _check_acceptances(work_item: WorkItem, client) -> None:
                 if isinstance(connected_at, int)
                 else checked_at
             )
+            accepted_at = min(accepted_at, checked_at)
             _set_invitation_status(
                 invitation,
                 Invitation.Status.ACCEPTED,
@@ -383,11 +384,14 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
         },
     )
     if created:
+        due_at = (invitation.accepted_at or timezone.now()) + timedelta(
+            minutes=source_import.message_delay_minutes
+        )
         WorkItem.objects.create(
             kind=WorkItem.Kind.SEND_MESSAGE,
             invitation=invitation,
             message=message,
-            due_at=timezone.now(),
+            due_at=max(timezone.now(), due_at),
             dedupe_key=f"message:{message.id}",
         )
     return message

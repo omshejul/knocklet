@@ -130,6 +130,7 @@ class MessageTemplateIn(Schema):
     name: str = "Follow-up"
     body: str
     auto_send_enabled: bool = False
+    delay_minutes: int = 5
 
 
 class MessageTemplateOut(Schema):
@@ -138,6 +139,7 @@ class MessageTemplateOut(Schema):
     body: str
     is_active: bool
     auto_send_enabled: bool
+    delay_minutes: int
     updated_at: str
 
 
@@ -256,6 +258,7 @@ def update_message_template(request, payload: MessageTemplateIn):
             name=payload.name,
             body=payload.body,
             auto_send_enabled=payload.auto_send_enabled,
+            delay_minutes=payload.delay_minutes,
         )
     except ValueError as error:
         return Status(400, {"detail": str(error)})

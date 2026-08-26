@@ -28,6 +28,7 @@ class ConnectionImport(models.Model):
         related_name="connection_imports",
     )
     message_template_body = models.TextField(blank=True)
+    message_delay_minutes = models.PositiveIntegerField(default=5)
     auto_message_enabled = models.BooleanField(default=False)
 
     class Meta:
@@ -147,6 +148,7 @@ class MessageTemplate(models.Model):
     body = models.TextField()
     is_active = models.BooleanField(default=False)
     auto_send_enabled = models.BooleanField(default=False)
+    delay_minutes = models.PositiveIntegerField(default=5)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

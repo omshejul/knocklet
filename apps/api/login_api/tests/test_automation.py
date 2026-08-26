@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.test import TransactionTestCase
 from django.utils import timezone
 
@@ -118,6 +120,7 @@ class AutomationTests(TransactionTestCase):
             status=ConnectionImport.Status.COMPLETE,
             message_template=template,
             message_template_body="Hello {first_name}",
+            message_delay_minutes=0,
             auto_message_enabled=True,
         )
         ConnectionRequest.objects.create(
@@ -164,6 +167,7 @@ class AutomationTests(TransactionTestCase):
             status=ConnectionImport.Status.COMPLETE,
             message_template=template,
             message_template_body="Hello {dummy_name}",
+            message_delay_minutes=0,
             auto_message_enabled=True,
         )
         ConnectionRequest.objects.create(
@@ -186,6 +190,54 @@ class AutomationTests(TransactionTestCase):
         message = Message.objects.get(invitation=invitation)
         assert message.status == "failed"
         assert message.error == "Unknown message field: {dummy_name}."
+        assert client.messages == []
+
+    def test_message_waits_for_the_saved_delay_after_acceptance(self):
+        client = AcceptedMessagingClient()
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+        template = MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+            auto_send_enabled=True,
+            delay_minutes=20,
+        )
+        connection_import = ConnectionImport.objects.create(
+            filename="people.csv",
+            status=ConnectionImport.Status.COMPLETE,
+            message_template=template,
+            message_template_body=template.body,
+            message_delay_minutes=20,
+            auto_message_enabled=True,
+        )
+        ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            person=person,
+            invitation=invitation,
+            row_number=2,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.SENT,
+            sent_at=invitation.sent_at,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        message = Message.objects.get(invitation=invitation)
+        send_work = WorkItem.objects.get(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            message=message,
+        )
+        assert message.status == Message.Status.QUEUED
+        assert send_work.due_at >= timezone.now() + timedelta(minutes=19)
         assert client.messages == []
 
     def test_queued_message_with_unresolved_field_is_never_sent(self):

@@ -9,6 +9,7 @@ TEMPLATE_FIELDS = {
     "first_name": "First name",
     "full_name": "Full name",
 }
+MAX_DELAY_MINUTES = 7 * 24 * 60
 
 
 def get_active_template() -> dict | None:
@@ -62,18 +63,27 @@ def save_active_template(
     name: str,
     body: str,
     auto_send_enabled: bool,
+    delay_minutes: int,
 ) -> dict:
     cleaned_body = body.strip()
     if not cleaned_body:
         raise ValueError("Message text is required.")
     validate_template_body(cleaned_body)
-    MessageTemplate.objects.filter(is_active=True).update(is_active=False)
-    template = MessageTemplate.objects.create(
-        name=name.strip() or "Follow-up",
-        body=cleaned_body,
-        is_active=True,
-        auto_send_enabled=auto_send_enabled,
+    if not 0 <= delay_minutes <= MAX_DELAY_MINUTES:
+        raise ValueError("Delay must be between 0 and 10,080 minutes.")
+    template = (
+        MessageTemplate.objects.select_for_update().filter(is_active=True).first()
+        or MessageTemplate.objects.select_for_update().first()
+        or MessageTemplate()
     )
+    if template.pk:
+        MessageTemplate.objects.exclude(pk=template.pk).delete()
+    template.name = name.strip() or "Follow-up"
+    template.body = cleaned_body
+    template.is_active = True
+    template.auto_send_enabled = auto_send_enabled
+    template.delay_minutes = delay_minutes
+    template.save()
     return template_snapshot(template)
 
 
@@ -84,5 +94,6 @@ def template_snapshot(template: MessageTemplate) -> dict:
         "body": template.body,
         "is_active": template.is_active,
         "auto_send_enabled": template.auto_send_enabled,
+        "delay_minutes": template.delay_minutes,
         "updated_at": template.updated_at.isoformat(),
     }

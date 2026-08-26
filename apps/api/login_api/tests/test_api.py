@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from login_api.cli_login import LoginSnapshot, LoginState
-from login_api.models import Invitation, Message, Person, WorkItem
+from login_api.models import Invitation, Message, MessageTemplate, Person, WorkItem
 
 
 def snapshot(state: LoginState) -> LoginSnapshot:
@@ -75,7 +75,32 @@ class LoginApiTests(TestCase):
 
         assert response.status_code == 200
         assert response.json()["auto_send_enabled"] is True
+        assert response.json()["delay_minutes"] == 5
         assert self.client.get("/api/message-template").json()["name"] == "Accepted"
+
+    def test_saving_reuses_the_only_message_template(self):
+        first = self.client.put(
+            "/api/message-template",
+            data={
+                "name": "First",
+                "body": "Hello {first_name}",
+                "delay_minutes": 15,
+            },
+            content_type="application/json",
+        )
+        second = self.client.put(
+            "/api/message-template",
+            data={
+                "name": "Updated",
+                "body": "Welcome {first_name}",
+                "delay_minutes": 30,
+            },
+            content_type="application/json",
+        )
+
+        assert first.json()["id"] == second.json()["id"]
+        assert second.json()["delay_minutes"] == 30
+        assert MessageTemplate.objects.count() == 1
 
     def test_rejects_unknown_message_template_field(self):
         response = self.client.put(
