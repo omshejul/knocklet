@@ -437,16 +437,19 @@ class ConnectionImportStore:
             connection_request.save(update_fields=["status"])
 
             checked_at = timezone.now()
+            connection_request.provider_status = None
             if connection_request.public_id.casefold() in pending_public_ids:
                 connection_request.status = ConnectionRequest.Status.PENDING
                 connection_request.error = "Connection request is already pending."
             else:
+                status_error = None
                 try:
                     connection_state = client.get_connection_state(
                         connection_request.public_id
                     )
-                except Exception:
+                except Exception as error:
                     connection_state = "unknown"
+                    status_error = error
 
                 if connection_state == "connected":
                     connection_request.status = ConnectionRequest.Status.CONNECTED
@@ -457,11 +460,21 @@ class ConnectionImportStore:
                 else:
                     connection_request.status = ConnectionRequest.Status.FAILED
                     connection_request.error = (
-                        "Connection status could not be confirmed."
+                        str(status_error)
+                        if status_error
+                        else "Connection status could not be confirmed."
                     )
+                    provider_status = getattr(status_error, "status", None)
+                    if (
+                        isinstance(provider_status, int)
+                        and 100 <= provider_status <= 599
+                    ):
+                        connection_request.provider_status = provider_status
 
             connection_request.checked_at = checked_at
-            connection_request.save(update_fields=["status", "error", "checked_at"])
+            connection_request.save(
+                update_fields=["status", "error", "provider_status", "checked_at"]
+            )
 
         eligible_ids = list(
             ConnectionRequest.objects.filter(

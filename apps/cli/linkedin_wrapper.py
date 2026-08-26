@@ -11,10 +11,21 @@ import time
 import threading
 from collections import deque
 from datetime import date
+from http import HTTPStatus
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".linkedin-cli"
 VOYAGER_API = "https://www.linkedin.com/voyager/api"
+
+
+class LinkedinAPIError(RuntimeError):
+    def __init__(self, status: int):
+        self.status = status
+        try:
+            phrase = HTTPStatus(status).phrase
+        except ValueError:
+            phrase = "Unknown status"
+        super().__init__(f"LinkedIn returned HTTP {status} {phrase}.")
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +177,7 @@ class LinkedinClient:
         }
         ''')
 
-    def _api_get(self, endpoint: str) -> dict:
+    def _api_get(self, endpoint: str, *, raise_for_status: bool = False) -> dict:
         """Execute a Voyager API GET request via the browser."""
         self._limiter.acquire()
         url = f"{VOYAGER_API}{endpoint}"
@@ -185,6 +196,8 @@ class LinkedinClient:
         result = self.driver.execute_script(f"return (async () => {{ {script} }})()", url)
 
         if result["status"] != 200:
+            if raise_for_status:
+                raise LinkedinAPIError(int(result["status"]))
             return {}
         return result["body"]
 
@@ -941,7 +954,8 @@ class LinkedinClient:
     def get_profile_network_info(self, public_profile_id: str) -> dict:
         """Get network info (follower count, connection count)."""
         data = self._api_get(
-            f"/identity/profiles/{public_profile_id}/networkinfo"
+            f"/identity/profiles/{public_profile_id}/networkinfo",
+            raise_for_status=True,
         )
         return data
 

@@ -1,4 +1,16 @@
-from linkedin_wrapper import LinkedinClient
+import pytest
+
+from linkedin_wrapper import LinkedinAPIError, LinkedinClient
+
+
+class FakeLimiter:
+    def acquire(self):
+        pass
+
+
+class GoneDriver:
+    def execute_script(self, script, url):
+        return {"status": 410, "body": {"status": 410}}
 
 
 def test_reads_pending_sent_invitation_public_ids():
@@ -65,3 +77,17 @@ def test_returns_unknown_when_connection_distance_is_missing():
     client.get_profile_network_info = lambda public_id: {"data": {}}
 
     assert client.get_connection_state("ada") == "unknown"
+
+
+def test_network_info_raises_the_linkedin_http_error():
+    client = object.__new__(LinkedinClient)
+    client.driver = GoneDriver()
+    client._limiter = FakeLimiter()
+
+    with pytest.raises(
+        LinkedinAPIError,
+        match=r"LinkedIn returned HTTP 410 Gone\.",
+    ) as error:
+        client.get_profile_network_info("ada")
+
+    assert error.value.status == 410

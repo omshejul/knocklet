@@ -44,6 +44,13 @@ class FakeAcceptanceClient:
         ]
 
 
+class FailingPreflightClient(FakeLinkedInClient):
+    def get_connection_state(self, public_id):
+        error = RuntimeError("LinkedIn returned HTTP 410 Gone.")
+        error.status = 410
+        raise error
+
+
 class ConnectionImportParsingTests(SimpleTestCase):
     def test_parses_common_clay_people_columns(self):
         connection_import = parse_connection_file(
@@ -195,4 +202,22 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         assert completed["people"][0]["status"] == "failed"
         assert completed["people"][0]["error"] == (
             "Connection status could not be confirmed."
+        )
+
+    def test_preflight_preserves_the_linkedin_http_error(self):
+        client = FailingPreflightClient()
+        store = ConnectionImportStore(client_factory=lambda: client)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "people.csv",
+        )
+
+        store.approve(connection_import["id"])
+        completed = store.wait(connection_import["id"])
+
+        assert client.public_ids == []
+        assert completed["people"][0]["status"] == "failed"
+        assert completed["people"][0]["provider_status"] == 410
+        assert completed["people"][0]["error"] == (
+            "LinkedIn returned HTTP 410 Gone."
         )
