@@ -30,7 +30,7 @@ Open [http://localhost:3000](http://localhost:3000). The API runs on `http://127
 
 Click "Log in with LinkedIn". A separate Chrome window opens because LinkedIn blocks its login page inside embedded frames. Finish login there.
 
-After login, choose a Clay CSV and click "Preview CSV". The importer accepts a `LinkedIn URL`, `LinkedIn Profile URL`, or `LinkedIn` column. Names can come from `Name`, `Full Name`, or separate `First Name` and `Last Name` columns. Review every row, then use the send button to approve the valid requests.
+After login, choose a CSV, XLS, XLSX, XLSB, XLSM, or ODS file and click "Preview file". The importer detects the LinkedIn profile URL column from its header or `linkedin.com/in/` values. Names can come from `Name`, `Full Name`, or separate `First Name` and `Last Name` columns. Review every row, then use the send button to approve the valid requests.
 
 Approval first loads sent invitations and checks each remaining profile. Pending invitations and existing connections are skipped. Only confirmed non-connections are sent, with visible checking and sending progress.
 

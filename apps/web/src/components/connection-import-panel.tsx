@@ -232,7 +232,7 @@ export function ConnectionImportPanel({
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.detail || "CSV could not be imported.");
+        throw new Error(data.detail || "File could not be imported.");
       }
       setConnectionImport(data as ConnectionImport);
       setHistory((current) =>
@@ -242,7 +242,7 @@ export function ConnectionImportPanel({
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "CSV could not be imported.",
+          : "File could not be imported.",
       );
     } finally {
       setIsUploading(false);
@@ -346,14 +346,14 @@ export function ConnectionImportPanel({
                   onFileReject={(_, message) => {
                     setError(
                       message === "File too large"
-                        ? "CSV must be smaller than 2 MB."
-                        : "Choose a CSV file.",
+                        ? "File must be smaller than 2 MB."
+                        : "Choose a CSV or spreadsheet.",
                     );
                   }}
-                  accept=".csv,text/csv"
+                  accept=".csv,.xls,.xlsx,.xlsb,.xlsm,.ods,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.oasis.opendocument.spreadsheet"
                   maxFiles={1}
                   maxSize={2 * 1024 * 1024}
-                  label="Clay CSV"
+                  label="Contacts file"
                   disabled={isUploading || isRunning(connectionImport)}
                 >
                   {!file ? (
@@ -363,7 +363,7 @@ export function ConnectionImportPanel({
                         aria-hidden="true"
                       />
                       <p className="text-center text-sm font-bold">
-                        Drop CSV or click to browse
+                        Drop CSV or spreadsheet
                       </p>
                       <p className="text-xs text-muted-foreground">2 MB max</p>
                     </FileUploadDropzone>
@@ -378,7 +378,7 @@ export function ConnectionImportPanel({
                         <FileUploadItemPreview className="size-10 rounded-lg [&>svg]:size-5" />
                         <FileUploadItemMetadata />
                         <FileUploadItemDelete
-                          aria-label="Remove CSV"
+                          aria-label="Remove file"
                           className={buttonVariants({
                             variant: "outline",
                             size: "icon",
@@ -397,7 +397,7 @@ export function ConnectionImportPanel({
                   disabled={!file || isUploading || isRunning(connectionImport)}
                   className="h-11 w-full"
                 >
-                  Preview CSV
+                  Preview file
                 </Button>
               </form>
 
@@ -429,7 +429,7 @@ export function ConnectionImportPanel({
 
                   <div
                     className="overflow-hidden rounded-xl border"
-                    aria-label="CSV people"
+                    aria-label="Imported people"
                   >
                     <Table>
                       <TableHeader>

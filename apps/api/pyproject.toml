@@ -8,6 +8,7 @@ dependencies = [
   "django-cors-headers>=4.7,<5",
   "django-ninja>=1.5,<2",
   "linkedin-cli",
+  "python-calamine>=0.8,<1",
 ]
 
 [build-system]

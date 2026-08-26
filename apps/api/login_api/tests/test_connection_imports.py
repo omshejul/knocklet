@@ -1,7 +1,20 @@
-from django.test import SimpleTestCase, TransactionTestCase
+import io
 
-from login_api.connection_imports import ConnectionImportStore, parse_clay_csv
+from django.test import SimpleTestCase, TransactionTestCase
+from openpyxl import Workbook
+
+from login_api.connection_imports import ConnectionImportStore, parse_connection_file
 from login_api.models import ConnectionRequest
+
+
+def _xlsx(rows: list[list[str]]) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    for row in rows:
+        worksheet.append(row)
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 class FakeLinkedInClient:
@@ -33,7 +46,7 @@ class FakeAcceptanceClient:
 
 class ConnectionImportParsingTests(SimpleTestCase):
     def test_parses_common_clay_people_columns(self):
-        connection_import = parse_clay_csv(
+        connection_import = parse_connection_file(
             b"Name,First Name,Last Name,LinkedIn URL\nAda Lovelace,Ada,Lovelace,https://www.linkedin.com/in/ada-lovelace/\n",
             "people.csv",
         )
@@ -43,7 +56,7 @@ class ConnectionImportParsingTests(SimpleTestCase):
         assert connection_import.people[0].status == "ready"
 
     def test_keeps_invalid_and_duplicate_rows_in_preview(self):
-        connection_import = parse_clay_csv(
+        connection_import = parse_connection_file(
             b"Full Name,LinkedIn Profile URL\nAda,linkedin.com/in/ada\nAda Again,https://linkedin.com/in/ada\nMissing,\n",
             "people.csv",
         )
@@ -53,6 +66,28 @@ class ConnectionImportParsingTests(SimpleTestCase):
             "duplicate",
             "invalid",
         ]
+
+    def test_detects_linkedin_urls_in_an_arbitrarily_named_csv_column(self):
+        connection_import = parse_connection_file(
+            b"Full Name,Profile\nAda Lovelace,https://linkedin.com/in/ada-lovelace\n",
+            "people.csv",
+        )
+
+        assert connection_import.people[0].public_id == "ada-lovelace"
+
+    def test_parses_xlsx_and_detects_the_linkedin_url_column(self):
+        connection_import = parse_connection_file(
+            _xlsx(
+                [
+                    ["Full Name", "Website", "Profile"],
+                    ["Ada Lovelace", "https://example.com", "linkedin.com/in/ada"],
+                ]
+            ),
+            "people.xlsx",
+        )
+
+        assert connection_import.people[0].name == "Ada Lovelace"
+        assert connection_import.people[0].public_id == "ada"
 
 
 class ConnectionImportPersistenceTests(TransactionTestCase):

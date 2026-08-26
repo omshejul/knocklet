@@ -7,8 +7,8 @@ from .cli_login import LoginAlreadyRunning, LoginManager
 from .connection_imports import (
     AcceptanceCheckError,
     ConnectionImportStore,
-    CsvImportError,
     ImportConflict,
+    ImportFileError,
     ImportNotFound,
 )
 
@@ -97,7 +97,7 @@ def import_connections(request, csv_file: File[UploadedFile]):
     try:
         connection_import = connection_imports.create(csv_file.read(), csv_file.name)
         return Status(201, connection_import)
-    except CsvImportError as error:
+    except ImportFileError as error:
         return Status(400, {"detail": str(error)})
 
 

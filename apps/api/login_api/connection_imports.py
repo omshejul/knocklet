@@ -1,22 +1,26 @@
 import csv
 import io
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone as datetime_timezone
-from typing import Callable
+from datetime import datetime
+from datetime import timezone as datetime_timezone
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from django.db import close_old_connections, transaction
 from django.utils import timezone
+from python_calamine import CalamineError, CalamineWorkbook
 
 from .models import ConnectionImport, ConnectionRequest
 
+MAX_IMPORT_BYTES = 2 * 1024 * 1024
+MAX_IMPORT_ROWS = 100
+SPREADSHEET_EXTENSIONS = {".xls", ".xlsx", ".xlsb", ".xlsm", ".ods"}
+SUPPORTED_EXTENSIONS = {".csv", *SPREADSHEET_EXTENSIONS}
 
-MAX_CSV_BYTES = 2 * 1024 * 1024
-MAX_CSV_ROWS = 100
 
-
-class CsvImportError(ValueError):
+class ImportFileError(ValueError):
     pass
 
 
@@ -52,20 +56,20 @@ def _normalize_header(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
 
 
-def _find_header(headers: list[str], candidates: set[str]) -> str | None:
-    for header in headers:
+def _find_header_index(headers: list[str], candidates: set[str]) -> int | None:
+    for index, header in enumerate(headers):
         if _normalize_header(header) in candidates:
-            return header
+            return index
     return None
 
 
-def _find_linkedin_header(headers: list[str]) -> str | None:
-    for header in headers:
+def _find_linkedin_header_index(headers: list[str]) -> int | None:
+    for index, header in enumerate(headers):
         normalized = _normalize_header(header)
         if "linkedin" in normalized and (
             "url" in normalized or "profile" in normalized or normalized == "linkedin"
         ):
-            return header
+            return index
     return None
 
 
@@ -86,48 +90,113 @@ def _public_id(linkedin_url: str) -> str | None:
     return public_id or None
 
 
-def parse_clay_csv(data: bytes, filename: str) -> ParsedImport:
-    if len(data) > MAX_CSV_BYTES:
-        raise CsvImportError("CSV must be smaller than 2 MB.")
+def _cell_text(value: object) -> str:
+    return "" if value is None else str(value).strip()
 
+
+def _row_value(row: list[object], index: int | None) -> str:
+    if index is None or index >= len(row):
+        return ""
+    return _cell_text(row[index])
+
+
+def _linkedin_column_index(headers: list[str], rows: list[list[object]]) -> int | None:
+    header_index = _find_linkedin_header_index(headers)
+    if header_index is not None:
+        return header_index
+
+    scores = [0] * len(headers)
+    for row in rows:
+        for index in range(min(len(row), len(headers))):
+            if _public_id(_cell_text(row[index])):
+                scores[index] += 1
+    if not scores or max(scores) == 0:
+        return None
+    return scores.index(max(scores))
+
+
+def _sheet_score(rows: list[list[object]]) -> tuple[int, int]:
+    if len(rows) < 2:
+        return (0, 0)
+    headers = [_cell_text(value) for value in rows[0]]
+    header_match = _find_linkedin_header_index(headers) is not None
+    linkedin_index = _linkedin_column_index(headers, rows[1:])
+    valid_urls = (
+        sum(_public_id(_row_value(row, linkedin_index)) is not None for row in rows[1:])
+        if linkedin_index is not None
+        else 0
+    )
+    return (valid_urls, int(header_match))
+
+
+def _read_csv_rows(data: bytes) -> list[list[object]]:
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as error:
-        raise CsvImportError("CSV must use UTF-8 encoding.") from error
+        raise ImportFileError("CSV must use UTF-8 encoding.") from error
 
-    reader = csv.DictReader(io.StringIO(text))
-    headers = [header for header in reader.fieldnames or [] if header]
-    if not headers:
-        raise CsvImportError("CSV has no header row.")
+    try:
+        return [list(row) for row in csv.reader(io.StringIO(text))]
+    except csv.Error as error:
+        raise ImportFileError("CSV could not be read.") from error
 
-    linkedin_header = _find_linkedin_header(headers)
-    if linkedin_header is None:
-        raise CsvImportError("CSV needs a LinkedIn URL column.")
 
-    name_header = _find_header(headers, {"name", "fullname", "personname"})
-    first_name_header = _find_header(headers, {"firstname", "first"})
-    last_name_header = _find_header(headers, {"lastname", "last"})
+def _read_spreadsheet_rows(data: bytes) -> list[list[object]]:
+    try:
+        workbook = CalamineWorkbook.from_filelike(io.BytesIO(data))
+        sheets = [
+            workbook.get_sheet_by_name(name).to_python()
+            for name in workbook.sheet_names
+        ]
+    except CalamineError as error:
+        raise ImportFileError("Spreadsheet could not be read.") from error
+
+    populated_sheets = [rows for rows in sheets if rows]
+    if not populated_sheets:
+        raise ImportFileError("Spreadsheet has no rows.")
+    return max(populated_sheets, key=_sheet_score)
+
+
+def parse_connection_file(data: bytes, filename: str) -> ParsedImport:
+    if len(data) > MAX_IMPORT_BYTES:
+        raise ImportFileError("File must be smaller than 2 MB.")
+
+    extension = Path(filename).suffix.casefold()
+    if extension not in SUPPORTED_EXTENSIONS:
+        raise ImportFileError("Use a CSV, XLS, XLSX, XLSB, XLSM, or ODS file.")
+
+    rows = _read_csv_rows(data) if extension == ".csv" else _read_spreadsheet_rows(data)
+    if not rows:
+        raise ImportFileError("File has no header row.")
+
+    headers = [_cell_text(value) for value in rows[0]]
+    if not any(headers):
+        raise ImportFileError("File has no header row.")
+
+    linkedin_index = _linkedin_column_index(headers, rows[1:])
+    if linkedin_index is None:
+        raise ImportFileError("File has no LinkedIn profile URLs.")
+
+    name_index = _find_header_index(headers, {"name", "fullname", "personname"})
+    first_name_index = _find_header_index(headers, {"firstname", "first"})
+    last_name_index = _find_header_index(headers, {"lastname", "last"})
 
     people: list[ParsedPerson] = []
     seen_public_ids: set[str] = set()
-    for row_number, row in enumerate(reader, start=2):
-        if len(people) >= MAX_CSV_ROWS:
-            raise CsvImportError("CSV can contain at most 100 people.")
-        if not any((value or "").strip() for value in row.values()):
+    for row_number, row in enumerate(rows[1:], start=2):
+        if len(people) >= MAX_IMPORT_ROWS:
+            raise ImportFileError("File can contain at most 100 people.")
+        if not any(_cell_text(value) for value in row):
             continue
 
-        linkedin_url = (row.get(linkedin_header) or "").strip()
+        linkedin_url = _row_value(row, linkedin_index)
         public_id = _public_id(linkedin_url)
-        full_name = (row.get(name_header) or "").strip() if name_header else ""
+        full_name = _row_value(row, name_index)
         if full_name.casefold() in {"[object object]", "object"}:
             full_name = ""
         if not full_name:
-            first_name = (
-                (row.get(first_name_header) or "").strip() if first_name_header else ""
-            )
-            last_name = (
-                (row.get(last_name_header) or "").strip() if last_name_header else ""
-            )
+            first_name = _row_value(row, first_name_index)
+            last_name = _row_value(row, last_name_index)
             full_name = " ".join(part for part in [first_name, last_name] if part)
 
         if public_id is None:
@@ -168,7 +237,7 @@ def parse_clay_csv(data: bytes, filename: str) -> ParsedImport:
         )
 
     if not people:
-        raise CsvImportError("CSV has no people.")
+        raise ImportFileError("File has no people.")
 
     return ParsedImport(filename=filename, people=people)
 
@@ -189,7 +258,7 @@ class ConnectionImportStore:
         return get_client()
 
     def create(self, data: bytes, filename: str) -> dict:
-        parsed = parse_clay_csv(data, filename)
+        parsed = parse_connection_file(data, filename)
         ready_public_ids = [
             person.public_id for person in parsed.people if person.status == "ready"
         ]
@@ -489,8 +558,7 @@ class ConnectionImportStore:
         )
         checked_count = sum(person["checked_at"] is not None for person in people)
         processed_count = sum(
-            person["status"]
-            in {"pending", "connected", "sent", "accepted", "failed"}
+            person["status"] in {"pending", "connected", "sent", "accepted", "failed"}
             for person in people
         )
         if connection_import.status == ConnectionImport.Status.CHECKING:
@@ -514,19 +582,14 @@ class ConnectionImportStore:
             "sent_count": sum(
                 person["status"] in {"sent", "accepted"} for person in people
             ),
-            "accepted_count": sum(
-                person["status"] == "accepted" for person in people
-            ),
-            "pending_count": sum(
-                person["status"] == "pending" for person in people
-            ),
+            "accepted_count": sum(person["status"] == "accepted" for person in people),
+            "pending_count": sum(person["status"] == "pending" for person in people),
             "connected_count": sum(
                 person["status"] == "connected" for person in people
             ),
             "failed_count": sum(person["status"] == "failed" for person in people),
             "skipped_count": sum(
-                person["status"]
-                in {"invalid", "duplicate", "pending", "connected"}
+                person["status"] in {"invalid", "duplicate", "pending", "connected"}
                 for person in people
             ),
             "total_count": total_count,
