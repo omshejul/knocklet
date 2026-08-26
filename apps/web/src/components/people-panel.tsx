@@ -42,8 +42,15 @@ type WorkerStatus = {
   last_work_item_id: string | null;
   last_status: string | null;
   last_error: string | null;
+  last_acceptance_check_at: string | null;
+  next_acceptance_check_at: string | null;
   pending_invitations: number;
   accepted_invitations: number;
+};
+
+type WorkItemStatus = {
+  status: string;
+  error: string | null;
 };
 
 type Filter = "all" | "pending" | "accepted" | "failed" | "needs_review";
@@ -78,6 +85,16 @@ async function fetchPeopleState() {
   };
 }
 
+async function fetchWorkItem(workItemId: string): Promise<WorkItemStatus> {
+  const response = await fetch(apiUrl + "/automation/work/" + workItemId, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Acceptance check status could not be loaded.");
+  }
+  return response.json();
+}
+
 export function PeoplePanel() {
   const [people, setPeople] = useState<Person[]>([]);
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
@@ -106,14 +123,15 @@ export function PeoplePanel() {
       });
     const interval = window.setInterval(() => {
       void load()
-        .then((nextWorker) => {
+        .then(async () => {
           if (!active || !requestedWorkId) return;
-          if (nextWorker.last_work_item_id !== requestedWorkId) return;
+          const workItem = await fetchWorkItem(requestedWorkId);
+          if (["queued", "running"].includes(workItem.status)) return;
           setRequestedWorkId(null);
-          if (nextWorker.last_status === "succeeded") {
+          if (workItem.status === "succeeded") {
             setConfirmation("Acceptance check finished.");
           } else {
-            setError(nextWorker.last_error ?? "Acceptance check failed.");
+            setError(workItem.error ?? "Acceptance check failed.");
           }
         })
         .catch((loadError: Error) => {
@@ -300,8 +318,12 @@ function workerLine(worker: WorkerStatus | null, checking: boolean) {
   if (!worker) return "Loading activity...";
   if (worker.current) return worker.current;
   if (checking || worker.state === "queued") return "Waiting for the local worker.";
-  const last = worker.last_finished_at ? `Last checked ${formatDate(worker.last_finished_at)}` : "Not checked yet";
-  const next = worker.next_due_at ? `Next check ${formatDate(worker.next_due_at)}` : "No check scheduled";
+  const last = worker.last_acceptance_check_at
+    ? `Last checked ${formatDate(worker.last_acceptance_check_at)}`
+    : "Not checked yet";
+  const next = worker.next_acceptance_check_at
+    ? `Next check ${formatDate(worker.next_acceptance_check_at)}`
+    : "No check scheduled";
   return `${last} · ${next}`;
 }
 

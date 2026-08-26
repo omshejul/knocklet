@@ -159,7 +159,7 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         store.wait(first_import["id"])
 
         second_import = store.create(
-            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ADA\n",
             "second.csv",
         )
 

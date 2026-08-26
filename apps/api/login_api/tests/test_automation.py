@@ -1,7 +1,12 @@
 from django.test import TransactionTestCase
 from django.utils import timezone
 
-from login_api.automation import recover_interrupted_work, run_due_work
+from login_api.automation import (
+    ACCEPTANCE_INTERVAL,
+    enqueue_acceptance_check,
+    recover_interrupted_work,
+    run_due_work,
+)
 from login_api.connection_imports import ConnectionImportStore
 from login_api.models import (
     ConnectionImport,
@@ -140,6 +145,26 @@ class AutomationTests(TransactionTestCase):
         assert client.messages == [
             ("Hello Ada", ["urn:li:fsd_profile:ada"]),
         ]
+
+    def test_failed_acceptance_check_waits_before_retrying(self):
+        person = Person.objects.create(name="Ada", public_id="ada")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+        completed_at = timezone.now()
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            status=WorkItem.Status.FAILED,
+            due_at=completed_at,
+            completed_at=completed_at,
+        )
+
+        next_check = enqueue_acceptance_check()
+
+        assert next_check is not None
+        assert next_check.due_at >= completed_at + ACCEPTANCE_INTERVAL
 
     @staticmethod
     def _person_id():

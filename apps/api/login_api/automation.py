@@ -96,7 +96,6 @@ def enqueue_acceptance_check(*, force: bool = False) -> WorkItem | None:
 
     last_check = WorkItem.objects.filter(
         kind=WorkItem.Kind.CHECK_ACCEPTANCES,
-        status=WorkItem.Status.SUCCEEDED,
         completed_at__isnull=False,
     ).order_by("-completed_at").first()
     due_at = now if force or last_check is None else last_check.completed_at + ACCEPTANCE_INTERVAL
@@ -174,6 +173,22 @@ def work_status() -> dict:
     running = WorkItem.objects.filter(status=WorkItem.Status.RUNNING).first()
     queued = WorkItem.objects.filter(status=WorkItem.Status.QUEUED).order_by("due_at").first()
     latest = WorkItem.objects.exclude(completed_at=None).order_by("-completed_at").first()
+    latest_acceptance = (
+        WorkItem.objects.filter(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            completed_at__isnull=False,
+        )
+        .order_by("-completed_at")
+        .first()
+    )
+    next_acceptance = (
+        WorkItem.objects.filter(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            status=WorkItem.Status.QUEUED,
+        )
+        .order_by("due_at")
+        .first()
+    )
     state = "working" if running else "queued" if queued and queued.due_at <= timezone.now() else "idle"
     return {
         "state": state,
@@ -183,12 +198,35 @@ def work_status() -> dict:
         "last_work_item_id": str(latest.id) if latest else None,
         "last_status": latest.status if latest else None,
         "last_error": latest.error or None if latest else None,
+        "last_acceptance_check_at": (
+            latest_acceptance.completed_at.isoformat() if latest_acceptance else None
+        ),
+        "next_acceptance_check_at": (
+            next_acceptance.due_at.isoformat() if next_acceptance else None
+        ),
         "pending_invitations": Invitation.objects.filter(
             status=Invitation.Status.PENDING
         ).count(),
         "accepted_invitations": Invitation.objects.filter(
             status=Invitation.Status.ACCEPTED
         ).count(),
+    }
+
+
+def work_item_status(work_item_id: str) -> dict | None:
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_id)
+    except (WorkItem.DoesNotExist, ValueError):
+        return None
+    return {
+        "id": str(work_item.id),
+        "kind": work_item.kind,
+        "status": work_item.status,
+        "error": work_item.error or None,
+        "started_at": work_item.started_at.isoformat() if work_item.started_at else None,
+        "completed_at": (
+            work_item.completed_at.isoformat() if work_item.completed_at else None
+        ),
     }
 
 

@@ -6,6 +6,7 @@ from ninja.files import UploadedFile
 from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
+    work_item_status,
     work_status,
 )
 from .cli_login import LoginAlreadyRunning, LoginManager
@@ -82,8 +83,19 @@ class WorkerStatusOut(Schema):
     last_work_item_id: str | None
     last_status: str | None
     last_error: str | None
+    last_acceptance_check_at: str | None
+    next_acceptance_check_at: str | None
     pending_invitations: int
     accepted_invitations: int
+
+
+class WorkItemStatusOut(Schema):
+    id: str
+    kind: str
+    status: str
+    error: str | None
+    started_at: str | None
+    completed_at: str | None
 
 
 class ConnectionApprovalIn(Schema):
@@ -172,6 +184,15 @@ def refresh_connection_acceptance(request):
 @api.get("/automation/status", response=WorkerStatusOut)
 def automation_status(request):
     return work_status()
+
+
+@api.get(
+    "/automation/work/{work_item_id}",
+    response={200: WorkItemStatusOut, 404: ErrorOut},
+)
+def automation_work_item(request, work_item_id: str):
+    item = work_item_status(work_item_id)
+    return item if item else Status(404, {"detail": "Work item not found."})
 
 
 @api.get("/people", response=list[OutreachPersonOut])

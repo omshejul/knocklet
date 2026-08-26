@@ -10,7 +10,7 @@ from django.utils import timezone
 from python_calamine import CalamineError, CalamineWorkbook
 
 from .automation import queue_invitation, run_due_work
-from .models import ConnectionImport, ConnectionRequest, MessageTemplate
+from .models import ConnectionImport, ConnectionRequest, Invitation, MessageTemplate
 
 MAX_IMPORT_BYTES = 2 * 1024 * 1024
 MAX_IMPORT_ROWS = 100
@@ -256,19 +256,23 @@ class ConnectionImportStore:
     def create(self, data: bytes, filename: str) -> dict:
         parsed = parse_connection_file(data, filename)
         ready_public_ids = [
-            person.public_id for person in parsed.people if person.status == "ready"
+            person.public_id.casefold()
+            for person in parsed.people
+            if person.status == "ready"
         ]
         previously_sent = set(
-            ConnectionRequest.objects.filter(
-                public_id__in=ready_public_ids,
+            Invitation.objects.filter(
+                person__normalized_public_id__in=ready_public_ids,
                 status__in=[
-                    ConnectionRequest.Status.SENDING,
-                    ConnectionRequest.Status.SENT,
-                    ConnectionRequest.Status.ACCEPTED,
-                    ConnectionRequest.Status.PENDING,
-                    ConnectionRequest.Status.CONNECTED,
+                    Invitation.Status.QUEUED,
+                    Invitation.Status.CHECKING,
+                    Invitation.Status.SENDING,
+                    Invitation.Status.PENDING,
+                    Invitation.Status.ACCEPTED,
+                    Invitation.Status.ALREADY_CONNECTED,
+                    Invitation.Status.NEEDS_REVIEW,
                 ],
-            ).values_list("public_id", flat=True)
+            ).values_list("person__normalized_public_id", flat=True)
         )
 
         with transaction.atomic():
@@ -285,13 +289,13 @@ class ConnectionImportStore:
                         public_id=person.public_id,
                         status=(
                             ConnectionRequest.Status.DUPLICATE
-                            if person.public_id in previously_sent
+                            if person.public_id.casefold() in previously_sent
                             and person.status == "ready"
                             else person.status
                         ),
                         error=(
                             "Connection request was already sent."
-                            if person.public_id in previously_sent
+                            if person.public_id.casefold() in previously_sent
                             and person.status == "ready"
                             else person.error or ""
                         ),

@@ -2,8 +2,10 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils import timezone
 
 from login_api.cli_login import LoginSnapshot, LoginState
+from login_api.models import WorkItem
 
 
 def snapshot(state: LoginState) -> LoginSnapshot:
@@ -74,6 +76,18 @@ class LoginApiTests(TestCase):
         assert response.status_code == 200
         assert response.json()["auto_send_enabled"] is True
         assert self.client.get("/api/message-template").json()["name"] == "Accepted"
+
+    def test_reads_exact_work_item_status(self):
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/automation/work/{work_item.id}")
+
+        assert response.status_code == 200
+        assert response.json()["id"] == str(work_item.id)
+        assert response.json()["status"] == "queued"
 
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):

@@ -110,6 +110,11 @@ type WorkerStatus = {
   accepted_invitations: number;
 };
 
+type WorkItemStatus = {
+  status: string;
+  error: string | null;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -142,6 +147,16 @@ async function fetchWorkerStatus(): Promise<WorkerStatus> {
   });
   if (!response.ok) {
     throw new Error("Worker status could not be loaded.");
+  }
+  return response.json();
+}
+
+async function fetchWorkItem(workItemId: string): Promise<WorkItemStatus> {
+  const response = await fetch(apiUrl + "/automation/work/" + workItemId, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Acceptance check status could not be loaded.");
   }
   return response.json();
 }
@@ -371,19 +386,19 @@ export function ConnectionImportPanel({
         setAcceptanceActivity("Queued acceptance check.");
         while (true) {
           await new Promise((resolve) => window.setTimeout(resolve, 750));
-          const status = await fetchWorkerStatus();
-          setAcceptanceActivity(
-            status.current ??
-              (status.state === "queued"
-                ? "Waiting for the local worker."
-                : "Finishing acceptance check."),
-          );
-          if (status.last_work_item_id !== request.work_item_id) {
+          const workItem = await fetchWorkItem(request.work_item_id);
+          if (workItem.status === "queued") {
+            setAcceptanceActivity("Waiting for the local worker.");
             continue;
           }
-          if (status.last_status !== "succeeded") {
-            throw new Error(status.last_error ?? "Acceptance check failed.");
+          if (workItem.status === "running") {
+            setAcceptanceActivity("Checking accepted invitations.");
+            continue;
           }
+          if (workItem.status !== "succeeded") {
+            throw new Error(workItem.error ?? "Acceptance check failed.");
+          }
+          const status = await fetchWorkerStatus();
           setAcceptanceResult(acceptanceResultFromStatus(status));
           break;
         }
