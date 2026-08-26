@@ -5,6 +5,7 @@ from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
 
+from .activity import list_logs
 from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
@@ -101,6 +102,20 @@ class WorkItemStatusOut(Schema):
     kind: str
     status: str
     error: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+class ActivityLogOut(Schema):
+    id: str
+    kind: str
+    status: str
+    person_name: str | None
+    error: str | None
+    provider_status: int | None
+    attempt_count: int
+    due_at: str
+    created_at: str
     started_at: str | None
     completed_at: str | None
 
@@ -213,6 +228,11 @@ def automation_work_item(request, work_item_id: str):
 @api.get("/people", response=list[OutreachPersonOut])
 def people(request):
     return list_people()
+
+
+@api.get("/logs", response=list[ActivityLogOut])
+def logs(request):
+    return list_logs()
 
 
 @api.delete(

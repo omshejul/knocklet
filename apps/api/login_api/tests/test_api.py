@@ -146,6 +146,39 @@ class LoginApiTests(TestCase):
         assert response.json()["id"] == str(work_item.id)
         assert response.json()["status"] == "queued"
 
+    def test_lists_persisted_work_logs_with_exact_failure(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(person=person)
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            status=WorkItem.Status.FAILED,
+            invitation=invitation,
+            due_at=timezone.now(),
+            attempt_count=1,
+            error="LinkedIn returned status 429.",
+            provider_status=429,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.get("/api/logs")
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "id": str(work_item.id),
+                "kind": "send_invitation",
+                "status": "failed",
+                "person_name": "Ada Lovelace",
+                "error": "LinkedIn returned status 429.",
+                "provider_status": 429,
+                "attempt_count": 1,
+                "due_at": work_item.due_at.isoformat(),
+                "created_at": work_item.created_at.isoformat(),
+                "started_at": None,
+                "completed_at": work_item.completed_at.isoformat(),
+            }
+        ]
+
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):
         store.approve.return_value = {
