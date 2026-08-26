@@ -1,0 +1,75 @@
+{
+  "name": "@knocklet/desktop",
+  "version": "0.1.0",
+  "description": "Local LinkedIn outreach desktop application",
+  "author": "Om Shejul",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "predist": "install-electron --no",
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg --arm64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.omshejul.knocklet",
+    "productName": "Knocklet",
+    "artifactName": "Knocklet-${version}-${arch}.${ext}",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/out",
+        "to": "web"
+      },
+      {
+        "from": "runtime-dist/knocklet-runtime",
+        "to": "runtime"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "forceCodeSigning": true,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "minimumSystemVersion": "13.0",
+      "signIgnore": [
+        "/Contents/Resources/runtime/(?!.*(?:knocklet-runtime|\\.dylib|\\.so)$)",
+        "/Contents/Resources/web/",
+        "/Contents/Resources/app\\.asar$",
+        "/Electron Framework\\.framework/(?:Versions/(?:A|Current)/)?Resources/"
+      ],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Knocklet ${version}",
+      "contents": [
+        {
+          "x": 180,
+          "y": 170,
+          "type": "file"
+        },
+        {
+          "x": 480,
+          "y": 170,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}
