@@ -12,9 +12,10 @@ import threading
 from collections import deque
 from datetime import date
 from http import HTTPStatus
-from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".linkedin-cli"
+from local_paths import local_data_dir
+
+CONFIG_DIR = local_data_dir()
 VOYAGER_API = "https://www.linkedin.com/voyager/api"
 
 

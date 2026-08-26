@@ -12,8 +12,9 @@ from pathlib import Path
 
 from nodriver_adapter import create_driver
 from linkedin_wrapper import LinkedinClient
+from local_paths import local_data_dir
 
-CONFIG_DIR = Path.home() / ".linkedin-cli"
+CONFIG_DIR = local_data_dir()
 COOKIES_FILE = CONFIG_DIR / "cookies.json"
 
 _client: LinkedinClient | None = None

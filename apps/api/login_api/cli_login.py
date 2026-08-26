@@ -9,6 +9,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable
 
+from local_paths import local_data_dir
+
 
 class LoginState(str, Enum):
     IDLE = "idle"
@@ -45,7 +47,7 @@ class LoginManager:
         popen_factory: PopenFactory = subprocess.Popen,
     ) -> None:
         repo_root = Path(__file__).resolve().parents[3]
-        self.cookies_file = cookies_file or Path.home() / ".linkedin-cli" / "cookies.json"
+        self.cookies_file = cookies_file or local_data_dir() / "cookies.json"
         self.cli_entrypoint = cli_entrypoint or Path(
             os.environ.get(
                 "LINKEDIN_CLI_ENTRYPOINT",

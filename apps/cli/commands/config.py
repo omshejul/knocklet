@@ -2,14 +2,15 @@
 
 import json
 import typer
-from pathlib import Path
 from rich.console import Console
 from rich.table import Table
+
+from local_paths import local_data_dir
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
-CONFIG_DIR = Path.home() / ".linkedin-cli"
+CONFIG_DIR = local_data_dir()
 CONFIG_FILE = CONFIG_DIR / "cli_config.json"
 
 # Defaults for all settings

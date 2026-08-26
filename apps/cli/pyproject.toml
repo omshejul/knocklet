@@ -18,7 +18,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["auth", "linkedin_wrapper", "main", "nodriver_adapter"]
+py-modules = ["auth", "linkedin_wrapper", "local_paths", "main", "nodriver_adapter"]
 
 [tool.setuptools.packages.find]
 where = ["."]
