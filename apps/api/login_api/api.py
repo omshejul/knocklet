@@ -69,6 +69,10 @@ class AcceptanceRefreshOut(Schema):
     checked_at: str
 
 
+class ConnectionApprovalIn(Schema):
+    row_numbers: list[int]
+
+
 api = NinjaAPI(title="LinkedIn CLI local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -132,9 +136,16 @@ def connection_import_status(request, import_id: str):
     "/connections/import/{import_id}/approve",
     response={202: ConnectionImportOut, 404: ErrorOut, 409: ErrorOut},
 )
-def approve_connection_import(request, import_id: str):
+def approve_connection_import(
+    request,
+    import_id: str,
+    approval: ConnectionApprovalIn,
+):
     try:
-        return Status(202, connection_imports.approve(import_id))
+        return Status(
+            202,
+            connection_imports.approve(import_id, approval.row_numbers),
+        )
     except ImportNotFound:
         return Status(404, {"detail": "Import not found."})
     except ImportConflict:

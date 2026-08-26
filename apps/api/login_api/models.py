@@ -30,6 +30,7 @@ class ConnectionRequest(models.Model):
         READY = "ready", "Ready"
         INVALID = "invalid", "Invalid"
         DUPLICATE = "duplicate", "Duplicate"
+        SKIPPED = "skipped", "Skipped"
         CHECKING = "checking", "Checking"
         PENDING = "pending", "Pending"
         CONNECTED = "connected", "Connected"

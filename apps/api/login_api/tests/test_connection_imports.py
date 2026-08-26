@@ -100,6 +100,25 @@ class ConnectionImportParsingTests(SimpleTestCase):
 
 
 class ConnectionImportPersistenceTests(TransactionTestCase):
+    def test_approval_sends_only_selected_ready_people(self):
+        client = FakeLinkedInClient()
+        store = ConnectionImportStore(client_factory=lambda: client)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\nGrace,https://linkedin.com/in/grace\n",
+            "people.csv",
+        )
+
+        store.approve(connection_import["id"], row_numbers=[3])
+        completed = store.wait(connection_import["id"])
+
+        assert client.public_ids == ["grace"]
+        assert [person["status"] for person in completed["people"]] == [
+            "skipped",
+            "sent",
+        ]
+        assert completed["skipped_count"] == 1
+        assert completed["total_count"] == 1
+
     def test_approval_sends_only_ready_people(self):
         client = FakeLinkedInClient()
         store = ConnectionImportStore(client_factory=lambda: client)

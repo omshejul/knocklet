@@ -318,7 +318,11 @@ class ConnectionImportStore:
         imports = ConnectionImport.objects.prefetch_related("requests")[:limit]
         return [self._snapshot(connection_import) for connection_import in imports]
 
-    def approve(self, import_id: str) -> dict:
+    def approve(
+        self,
+        import_id: str,
+        row_numbers: list[int] | None = None,
+    ) -> dict:
         with transaction.atomic():
             try:
                 connection_import = ConnectionImport.objects.select_for_update().get(
@@ -329,13 +333,28 @@ class ConnectionImportStore:
             if connection_import.status != ConnectionImport.Status.AWAITING_APPROVAL:
                 raise ImportConflict
 
-            ready_ids = list(
-                connection_import.requests.filter(
-                    status=ConnectionRequest.Status.READY
-                ).values_list("id", flat=True)
+            ready_requests = connection_import.requests.filter(
+                status=ConnectionRequest.Status.READY
             )
-            if not ready_ids:
+            selected_rows = (
+                set(row_numbers)
+                if row_numbers is not None
+                else set(ready_requests.values_list("row_number", flat=True))
+            )
+            selected_requests = ready_requests.filter(
+                row_number__in=selected_rows
+            )
+            if (
+                not selected_rows
+                or selected_requests.count() != len(selected_rows)
+            ):
                 raise ImportConflict
+
+            ready_ids = list(selected_requests.values_list("id", flat=True))
+            ready_requests.exclude(row_number__in=selected_rows).update(
+                status=ConnectionRequest.Status.SKIPPED,
+                error="Not selected.",
+            )
 
             connection_import.status = ConnectionImport.Status.CHECKING
             connection_import.approved_at = timezone.now()
@@ -568,7 +587,8 @@ class ConnectionImportStore:
             for request in connection_import.requests.all()
         ]
         total_count = sum(
-            person["status"] not in {"invalid", "duplicate"} for person in people
+            person["status"] not in {"invalid", "duplicate", "skipped"}
+            for person in people
         )
         checked_count = sum(person["checked_at"] is not None for person in people)
         processed_count = sum(
@@ -603,7 +623,8 @@ class ConnectionImportStore:
             ),
             "failed_count": sum(person["status"] == "failed" for person in people),
             "skipped_count": sum(
-                person["status"] in {"invalid", "duplicate", "pending", "connected"}
+                person["status"]
+                in {"invalid", "duplicate", "skipped", "pending", "connected"}
                 for person in people
             ),
             "total_count": total_count,

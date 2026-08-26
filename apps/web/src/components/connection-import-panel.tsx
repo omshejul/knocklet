@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   FileUpload,
   FileUploadDropzone,
@@ -41,6 +42,7 @@ type PersonStatus =
   | "ready"
   | "invalid"
   | "duplicate"
+  | "skipped"
   | "checking"
   | "pending"
   | "connected"
@@ -153,6 +155,7 @@ export function ConnectionImportPanel({
   const [connectionImport, setConnectionImport] =
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
@@ -241,10 +244,18 @@ export function ConnectionImportPanel({
       if (!response.ok) {
         throw new Error(data.detail || "File could not be imported.");
       }
-      setConnectionImport(data as ConnectionImport);
+      const imported = data as ConnectionImport;
+      setConnectionImport(imported);
+      setSelectedRows(
+        new Set(
+          imported.people
+            .filter((person) => person.status === "ready")
+            .map((person) => person.row_number),
+        ),
+      );
       setDetailsOpen(true);
       setHistory((current) =>
-        upsertImport(current, data as ConnectionImport),
+        upsertImport(current, imported),
       );
     } catch (requestError) {
       setError(
@@ -262,17 +273,32 @@ export function ConnectionImportPanel({
       return;
     }
 
+    const selectedReadyRows = connectionImport.people
+      .filter(
+        (person) =>
+          person.status === "ready" && selectedRows.has(person.row_number),
+      )
+      .map((person) => person.row_number);
+    if (selectedReadyRows.length === 0) {
+      return;
+    }
+
     setError("");
     try {
       const response = await fetch(
         apiUrl + "/connections/import/" + connectionImport.id + "/approve",
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ row_numbers: selectedReadyRows }),
+        },
       );
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.detail || "Requests could not be started.");
       }
       setConnectionImport(data as ConnectionImport);
+      setSelectedRows(new Set());
       setDetailsOpen(false);
       setHistory((current) =>
         upsertImport(current, data as ConnectionImport),
@@ -337,6 +363,17 @@ export function ConnectionImportPanel({
   const sentInvitationCount = activity.filter(
     ({ person }) => person.status === "sent",
   ).length;
+  const canSelectPeople = connectionImport?.status === "awaiting_approval";
+  const readyPeople = canSelectPeople
+    ? connectionImport.people.filter((person) => person.status === "ready")
+    : [];
+  const selectedReadyCount = readyPeople.filter((person) =>
+    selectedRows.has(person.row_number),
+  ).length;
+  const allReadySelected =
+    readyPeople.length > 0 && selectedReadyCount === readyPeople.length;
+  const someReadySelected =
+    selectedReadyCount > 0 && selectedReadyCount < readyPeople.length;
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -350,6 +387,7 @@ export function ConnectionImportPanel({
                   onValueChange={(files) => {
                     setFile(files[0] ?? null);
                     setConnectionImport(null);
+                    setSelectedRows(new Set());
                     setDetailsOpen(false);
                     setError("");
                   }}
@@ -471,6 +509,29 @@ export function ConnectionImportPanel({
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-muted/40 hover:bg-muted/40">
+                              {canSelectPeople ? (
+                                <TableHead className="w-12 px-3">
+                                  <Checkbox
+                                    aria-label="Select all ready people"
+                                    checked={allReadySelected}
+                                    indeterminate={someReadySelected}
+                                    disabled={readyPeople.length === 0}
+                                    onCheckedChange={(checked) => {
+                                      setSelectedRows((current) => {
+                                        const next = new Set(current);
+                                        for (const person of readyPeople) {
+                                          if (checked) {
+                                            next.add(person.row_number);
+                                          } else {
+                                            next.delete(person.row_number);
+                                          }
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                </TableHead>
+                              ) : null}
                               <TableHead className="px-3 font-bold">
                                 Name
                               </TableHead>
@@ -485,6 +546,28 @@ export function ConnectionImportPanel({
                           <TableBody>
                             {connectionImport.people.map((person) => (
                               <TableRow key={person.row_number}>
+                                {canSelectPeople ? (
+                                  <TableCell className="w-12 px-3">
+                                    <Checkbox
+                                      aria-label={`Select ${person.name}`}
+                                      checked={selectedRows.has(
+                                        person.row_number,
+                                      )}
+                                      disabled={person.status !== "ready"}
+                                      onCheckedChange={(checked) => {
+                                        setSelectedRows((current) => {
+                                          const next = new Set(current);
+                                          if (checked) {
+                                            next.add(person.row_number);
+                                          } else {
+                                            next.delete(person.row_number);
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </TableCell>
+                                ) : null}
                                 <TableCell className="px-3">
                                   {person.name}
                                 </TableCell>
@@ -516,9 +599,10 @@ export function ConnectionImportPanel({
                       type="button"
                       size="lg"
                       onClick={approveImport}
+                      disabled={selectedReadyCount === 0}
                       className="h-11 w-full sm:w-auto"
                     >
-                      Send {connectionImport.ready_count} connection requests
+                      Send {selectedReadyCount} connection requests
                     </Button>
                   ) : null}
                 </motion.div>
@@ -658,7 +742,7 @@ function StatusBadge({ status }: { status: PersonStatus }) {
       </Badge>
     );
   }
-  if (status === "duplicate" || status === "pending") {
+  if (status === "duplicate" || status === "skipped" || status === "pending") {
     return <Badge variant="outline">{status}</Badge>;
   }
   return <Badge variant="secondary">{status}</Badge>;
