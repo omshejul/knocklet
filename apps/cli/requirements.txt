@@ -1,0 +1,4 @@
+nodriver>=0.38
+typer>=0.24.0
+rich>=14.0.0
+openpyxl>=3.1.0

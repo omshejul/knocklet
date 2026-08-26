@@ -1,0 +1,28 @@
+[project]
+name = "linkedin-cli"
+version = "0.1.0"
+description = "Command-line client for a local LinkedIn session"
+requires-python = ">=3.11"
+dependencies = [
+  "nodriver>=0.38",
+  "openpyxl>=3.1.0",
+  "rich>=14.0.0",
+  "typer>=0.24.0",
+]
+
+[project.scripts]
+linkedin-cli = "main:app"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["auth", "linkedin_wrapper", "main", "nodriver_adapter"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["commands*"]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]

@@ -1,0 +1,277 @@
+"""Profile commands."""
+
+import json
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+app = typer.Typer(no_args_is_help=True)
+console = Console()
+
+
+@app.command()
+def show(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show a LinkedIn profile."""
+    from auth import get_client
+    api = get_client()
+    profile = api.get_profile(public_id=username)
+
+    if json_output:
+        from commands import output_json
+        output_json(profile)
+        return
+
+    table = Table(title=f"Profile: {username}")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Name", f"{profile.get('firstName', '')} {profile.get('lastName', '')}")
+    table.add_row("Headline", profile.get("headline", ""))
+    table.add_row("Location", profile.get("locationName", ""))
+    table.add_row("Industry", profile.get("industryName", ""))
+    table.add_row("Summary", (profile.get("summary", "") or "")[:200])
+    table.add_row("Followers", str(profile.get("followerCount", "")))
+    table.add_row("Connections", str(profile.get("connectionCount", "")))
+
+    console.print(table)
+
+
+@app.command()
+def contact(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show contact info for a profile."""
+    from auth import get_client
+    api = get_client()
+    info = api.get_profile_contact_info(public_id=username)
+
+    if json_output:
+        from commands import output_json
+        output_json(info)
+        return
+
+    table = Table(title=f"Contact: {username}")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="green")
+
+    def fmt(val):
+        if isinstance(val, list):
+            return ", ".join(str(v) for v in val) if val else ""
+        return str(val) if val else ""
+
+    table.add_row("Email", fmt(info.get("email_address", "")))
+    table.add_row("Phone", fmt(info.get("phone_numbers", [])))
+    table.add_row("Twitter", fmt(info.get("twitter", [])))
+    table.add_row("Websites", fmt(info.get("websites", [])))
+
+    console.print(table)
+
+
+@app.command()
+def skills(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List skills of a profile."""
+    from auth import get_client
+    api = get_client()
+    result = api.get_profile_skills(public_id=username)
+
+    if json_output:
+        from commands import output_json
+        output_json(result)
+        return
+
+    table = Table(title=f"Skills: {username}")
+    table.add_column("#", style="dim")
+    table.add_column("Skill", style="green")
+
+    for i, skill in enumerate(result, 1):
+        table.add_row(str(i), skill.get("name", ""))
+
+    console.print(table)
+
+
+@app.command()
+def experiences(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List experiences of a profile."""
+    from auth import get_client
+    api = get_client()
+    result = api.get_profile_experiences(public_id=username)
+
+    if json_output:
+        from commands import output_json
+        output_json(result)
+        return
+
+    if not result:
+        console.print("[dim]No experiences found.[/dim]")
+        return
+
+    for exp in result:
+        company = exp.get("companyName", "")
+        title = exp.get("title", "")
+        period = exp.get("timePeriod", "")
+        location = exp.get("location", "")
+        console.print(f"[bold]{title}[/bold] at [cyan]{company}[/cyan]")
+        if period:
+            console.print(f"  {period}")
+        if location:
+            console.print(f"  [dim]{location}[/dim]")
+        console.print()
+
+
+@app.command()
+def connections(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max connections to fetch"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List connections of a profile."""
+    from auth import get_client
+    api = get_client()
+    result = api.get_profile_connections(public_id=username, max_results=limit)
+
+    if json_output:
+        from commands import output_json
+        output_json(result)
+        return
+
+    table = Table(title="Connections")
+    table.add_column("Name", style="green")
+    table.add_column("Headline")
+    table.add_column("Public ID", style="dim")
+
+    for conn in result:
+        table.add_row(
+            f"{conn.get('firstName', '')} {conn.get('lastName', '')}",
+            (conn.get("headline", "") or "")[:60],
+            conn.get("public_id", ""),
+        )
+
+    console.print(table)
+    console.print(f"[dim]{len(result)} connections loaded[/dim]")
+
+
+@app.command()
+def posts(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    limit: int = typer.Option(25, "--limit", "-n", help="Number of posts"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List posts from a profile."""
+    from auth import get_client
+    api = get_client()
+    result = api.get_profile_posts(public_id=username, limit=limit)
+
+    if json_output:
+        from commands import output_json
+        output_json(result)
+        return
+
+    if not result:
+        console.print("[dim]No posts found.[/dim]")
+        return
+
+    for i, post in enumerate(result, 1):
+        text = post.get("text", "")
+        posted_at = post.get("posted_at", "")
+        console.print(f"[bold cyan]Post {i}[/bold cyan]  [dim]{posted_at}[/dim]")
+        console.print(text[:300] if text else "[dim]No text[/dim]")
+        console.print(
+            f"[dim]Reactions: {post.get('reactions', '0')} | "
+            f"Comments: {post.get('comments', '0')} | "
+            f"Shares: {post.get('shares', '0')}[/dim]"
+        )
+        if post.get("urn"):
+            console.print(f"[dim]URN: {post['urn']}[/dim]")
+        console.print("---")
+
+
+@app.command()
+def views(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show who viewed your profile."""
+    from auth import get_client
+    api = get_client()
+    result = api.get_current_profile_views()
+
+    if json_output:
+        from commands import output_json
+        output_json(result)
+        return
+
+    table = Table(title="Profile Views")
+    table.add_column("Name", style="green")
+    table.add_column("Headline")
+    table.add_column("Viewed At", style="dim")
+
+    for card in result:
+        value = card.get("value", {})
+        inner = value.get("com.linkedin.voyager.identity.me.wvmpOverview.WvmpViewersCard", {})
+        for insight in inner.get("insightCards", []):
+            summary = insight.get("value", {}).get("com.linkedin.voyager.identity.me.wvmpOverview.WvmpSummaryInsightCard", {})
+            for c in summary.get("cards", []):
+                viewer_data = c.get("value", {}).get("com.linkedin.voyager.identity.me.WvmpProfileViewCard", {})
+                viewer = viewer_data.get("viewer", {})
+                full = viewer.get("com.linkedin.voyager.identity.me.FullProfileViewer", {})
+                mini = full.get("profile", {}).get("miniProfile", {})
+                if not mini:
+                    continue
+                name = f"{mini.get('firstName', '')} {mini.get('lastName', '')}"
+                headline = mini.get("occupation", "")
+                viewed_at = viewer_data.get("viewedAt", "")
+                if viewed_at:
+                    from datetime import datetime
+                    try:
+                        viewed_at = datetime.fromtimestamp(viewed_at / 1000).strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        pass
+                table.add_row(name, headline[:60], str(viewed_at))
+
+    console.print(table)
+
+
+@app.command()
+def network(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show network info for a profile."""
+    from auth import get_client
+    api = get_client()
+    profile = api.get_profile(public_id=username)
+
+    if json_output:
+        from commands import output_json
+        output_json({"followers": profile.get("followerCount"), "connections": profile.get("connectionCount")})
+        return
+
+    table = Table(title=f"Network: {username}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Followers", str(profile.get("followerCount", "")))
+    table.add_row("Connections", str(profile.get("connectionCount", "")))
+
+    console.print(table)
+
+
+@app.command()
+def raw(
+    username: str = typer.Argument(..., help="LinkedIn public profile ID"),
+):
+    """Dump raw profile JSON."""
+    from auth import get_client
+    api = get_client()
+    profile = api.get_profile(public_id=username)
+    console.print_json(data=profile)

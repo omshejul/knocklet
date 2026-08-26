@@ -1,0 +1,22 @@
+[project]
+name = "linkedin-api"
+version = "0.1.0"
+description = "Local HTTP API for LinkedIn CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "django>=5.2,<6",
+  "django-cors-headers>=4.7,<5",
+  "django-ninja>=1.5,<2",
+  "linkedin-cli",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["linkedin_api*", "login_api*"]
+
+[tool.uv.sources]
+linkedin-cli = { workspace = true }
