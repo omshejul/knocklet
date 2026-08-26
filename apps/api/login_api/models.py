@@ -6,6 +6,7 @@ from django.db import models
 class ConnectionImport(models.Model):
     class Status(models.TextChoices):
         AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
+        CHECKING = "checking", "Checking"
         SENDING = "sending", "Sending"
         COMPLETE = "complete", "Complete"
 
@@ -29,6 +30,9 @@ class ConnectionRequest(models.Model):
         READY = "ready", "Ready"
         INVALID = "invalid", "Invalid"
         DUPLICATE = "duplicate", "Duplicate"
+        CHECKING = "checking", "Checking"
+        PENDING = "pending", "Pending"
+        CONNECTED = "connected", "Connected"
         SENDING = "sending", "Sending"
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
