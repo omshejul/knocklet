@@ -1,9 +1,18 @@
-const { app, BrowserWindow, dialog, Menu, nativeImage, Tray } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  Menu,
+  nativeImage,
+  Tray,
+} = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { createMenuTray } = require("./menu-tray.cjs");
+
+const { createDesktopUpdates } = require("./desktop-updates.cjs");
 
 const API_ADDRESS = "127.0.0.1:47138";
 const API_URL = `http://${API_ADDRESS}/api/health`;
@@ -11,6 +20,7 @@ const WEB_PORT = 47139;
 const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 
 let apiProcess;
+let desktopUpdates;
 let mainWindow;
 let quitting = false;
 let tray;
@@ -152,6 +162,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.cjs"),
       sandbox: true,
     },
   });
@@ -187,12 +198,23 @@ async function start() {
   const logDescriptor = fs.openSync(logPath, "a");
   const environment = runtimeEnvironment();
 
+  desktopUpdates = createDesktopUpdates({
+    app,
+    getTray: () => tray,
+    getWindow: () => mainWindow,
+    openWindow: showWindow,
+    setQuitting: (value) => {
+      quitting = value;
+    },
+  });
+
   runMigrations(runtime, environment, logDescriptor, logPath);
   apiProcess = startRuntime(runtime, "serve", environment, logDescriptor);
   workerProcess = startRuntime(runtime, "worker", environment, logDescriptor);
   webServer = await startStaticServer(webRoot);
   await waitForApi();
   createWindow();
+  desktopUpdates.start();
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -202,6 +224,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("activate", showWindow);
   app.on("before-quit", () => {
     quitting = true;
+    desktopUpdates?.dispose();
     webServer?.close();
     stopRuntime(apiProcess);
     stopRuntime(workerProcess);
