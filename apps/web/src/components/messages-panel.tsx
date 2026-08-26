@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -23,10 +24,14 @@ type MessageTemplate = {
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 export function MessagesPanel() {
+  const reducedMotion = useReducedMotion();
   const [body, setBody] = useState("");
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [autoSend, setAutoSend] = useState(false);
   const [delayMinutes, setDelayMinutes] = useState(5);
+  const [savedTemplate, setSavedTemplate] = useState<MessageTemplate | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -61,6 +66,7 @@ export function MessagesPanel() {
           setBody(result.template.body);
           setAutoSend(result.template.auto_send_enabled);
           setDelayMinutes(result.template.delay_minutes);
+          setSavedTemplate(result.template);
         }
       })
       .catch((loadError: Error) => {
@@ -105,6 +111,7 @@ export function MessagesPanel() {
       setBody(data.body);
       setAutoSend(data.auto_send_enabled);
       setDelayMinutes(data.delay_minutes);
+      setSavedTemplate(data);
       setConfirmation("Template saved.");
     } catch (saveError) {
       setError(
@@ -116,6 +123,11 @@ export function MessagesPanel() {
   }
 
   const fieldError = getTemplateFieldError(body, fields);
+  const isDirty = savedTemplate
+    ? body !== savedTemplate.body ||
+      autoSend !== savedTemplate.auto_send_enabled ||
+      delayMinutes !== savedTemplate.delay_minutes
+    : body.trim().length > 0 || autoSend || delayMinutes !== 5;
 
   return (
     <>
@@ -188,25 +200,45 @@ export function MessagesPanel() {
             </Alert>
           ) : null}
 
-          <Button
-            type="button"
-            onClick={saveTemplate}
-            disabled={
-              isLoading ||
-              isSaving ||
-              body.trim().length === 0 ||
-              Boolean(fieldError)
-            }
-            aria-busy={isSaving}
-            className="min-h-11"
-          >
-            Save template
-            {isSaving ? (
-              <LoaderCircle className="animate-spin" aria-hidden="true" />
+          <AnimatePresence>
+            {!isLoading && isDirty ? (
+              <motion.div key="save-template" {...appear(reducedMotion)}>
+                <Button
+                  type="button"
+                  onClick={saveTemplate}
+                  disabled={
+                    isSaving ||
+                    body.trim().length === 0 ||
+                    Boolean(fieldError)
+                  }
+                  aria-busy={isSaving}
+                  className="min-h-11"
+                >
+                  Save template
+                  {isSaving ? (
+                    <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  ) : null}
+                </Button>
+              </motion.div>
             ) : null}
-          </Button>
+          </AnimatePresence>
         </CardContent>
       </Card>
     </>
   );
+}
+
+function appear(reduced: boolean | null) {
+  return {
+    initial: reduced
+      ? { opacity: 0 }
+      : { opacity: 0, y: 12, filter: "blur(12px)" },
+    animate: reduced
+      ? { opacity: 1 }
+      : { opacity: 1, y: 0, filter: "blur(0px)" },
+    exit: reduced
+      ? { opacity: 0 }
+      : { opacity: 0, y: 8, filter: "blur(10px)" },
+    transition: { duration: reduced ? 0.01 : 0.2, ease: "easeOut" as const },
+  };
 }
