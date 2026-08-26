@@ -1,7 +1,13 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CircleCheck, LoaderCircle, UploadCloud, X } from "lucide-react";
+import {
+  ChevronDown,
+  CircleCheck,
+  LoaderCircle,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -147,6 +153,7 @@ export function ConnectionImportPanel({
   const [connectionImport, setConnectionImport] =
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [acceptanceResult, setAcceptanceResult] =
@@ -235,6 +242,7 @@ export function ConnectionImportPanel({
         throw new Error(data.detail || "File could not be imported.");
       }
       setConnectionImport(data as ConnectionImport);
+      setDetailsOpen(true);
       setHistory((current) =>
         upsertImport(current, data as ConnectionImport),
       );
@@ -265,6 +273,7 @@ export function ConnectionImportPanel({
         throw new Error(data.detail || "Requests could not be started.");
       }
       setConnectionImport(data as ConnectionImport);
+      setDetailsOpen(false);
       setHistory((current) =>
         upsertImport(current, data as ConnectionImport),
       );
@@ -341,6 +350,7 @@ export function ConnectionImportPanel({
                   onValueChange={(files) => {
                     setFile(files[0] ?? null);
                     setConnectionImport(null);
+                    setDetailsOpen(false);
                     setError("");
                   }}
                   onFileReject={(_, message) => {
@@ -409,64 +419,96 @@ export function ConnectionImportPanel({
 
               {connectionImport ? (
                 <motion.div {...appear(reducedMotion)} className="space-y-3">
-                  {isRunning(connectionImport) ? (
-                    <Progress
-                      value={connectionImport.progress_percent}
-                      aria-label={`${phaseLabel(connectionImport)} progress`}
-                      className="gap-2"
-                    >
-                      <ProgressLabel>{summary(connectionImport)}</ProgressLabel>
-                      <ProgressValue />
-                    </Progress>
-                  ) : (
-                    <p
-                      className="text-sm text-muted-foreground"
+                  <div className="flex items-start justify-between gap-3">
+                    <div
+                      className="min-w-0 flex-1"
                       aria-live="polite"
+                      aria-atomic="true"
                     >
-                      {summary(connectionImport)}
-                    </p>
-                  )}
-
-                  <div
-                    className="overflow-hidden rounded-xl border"
-                    aria-label="Imported people"
-                  >
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/40 hover:bg-muted/40">
-                          <TableHead className="px-3 font-bold">Name</TableHead>
-                          <TableHead className="px-3 font-bold">
-                            LinkedIn
-                          </TableHead>
-                          <TableHead className="px-3 font-bold">
-                            Status
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {connectionImport.people.map((person) => (
-                          <TableRow key={person.row_number}>
-                            <TableCell className="px-3">
-                              {person.name}
-                            </TableCell>
-                            <TableCell className="px-3 font-mono text-xs">
-                              {person.public_id || "-"}
-                            </TableCell>
-                            <TableCell className="px-3">
-                              <div className="flex max-w-sm flex-col items-start gap-1.5">
-                                <StatusBadge status={person.status} />
-                                {person.status === "failed" && person.error ? (
-                                  <span className="whitespace-normal text-xs leading-4 text-destructive">
-                                    {person.error}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                      {isRunning(connectionImport) ? (
+                        <Progress
+                          value={connectionImport.progress_percent}
+                          aria-label={`${phaseLabel(connectionImport)} progress`}
+                          className="gap-2"
+                        >
+                          <ProgressLabel>
+                            {summary(connectionImport)}
+                          </ProgressLabel>
+                          <ProgressValue />
+                        </Progress>
+                      ) : (
+                        <p className="pt-2 text-sm text-muted-foreground">
+                          {summary(connectionImport)}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      aria-expanded={detailsOpen}
+                      aria-controls="connection-import-details"
+                      onClick={() => setDetailsOpen((current) => !current)}
+                    >
+                      {detailsOpen ? "Hide" : "Show"} details
+                      <ChevronDown
+                        className={detailsOpen ? "rotate-180" : undefined}
+                        aria-hidden="true"
+                      />
+                    </Button>
                   </div>
+
+                  <AnimatePresence initial={false}>
+                    {detailsOpen ? (
+                      <motion.div
+                        key="connection-import-details"
+                        id="connection-import-details"
+                        {...appear(reducedMotion)}
+                        className="overflow-hidden rounded-xl border"
+                        aria-label="Imported people"
+                      >
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/40 hover:bg-muted/40">
+                              <TableHead className="px-3 font-bold">
+                                Name
+                              </TableHead>
+                              <TableHead className="px-3 font-bold">
+                                LinkedIn
+                              </TableHead>
+                              <TableHead className="px-3 font-bold">
+                                Status
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {connectionImport.people.map((person) => (
+                              <TableRow key={person.row_number}>
+                                <TableCell className="px-3">
+                                  {person.name}
+                                </TableCell>
+                                <TableCell className="px-3 font-mono text-xs">
+                                  {person.public_id || "-"}
+                                </TableCell>
+                                <TableCell className="px-3">
+                                  <div className="flex max-w-sm flex-col items-start gap-1.5">
+                                    <StatusBadge status={person.status} />
+                                    {person.status === "failed" &&
+                                    person.error ? (
+                                      <span className="whitespace-normal text-xs leading-4 text-destructive">
+                                        {person.error}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
 
                   {connectionImport.status === "awaiting_approval" &&
                   connectionImport.ready_count > 0 ? (
@@ -627,12 +669,26 @@ function summary(connectionImport: ConnectionImport) {
     return `${connectionImport.ready_count} ready, ${connectionImport.skipped_count} skipped.`;
   }
   if (connectionImport.status === "checking") {
-    return `Checking profiles. ${connectionImport.checked_count} of ${connectionImport.total_count} checked.`;
+    const current = connectionImport.people.find(
+      (person) => person.status === "checking",
+    );
+    const position = Math.min(
+      connectionImport.checked_count + (current ? 1 : 0),
+      connectionImport.total_count,
+    );
+    return `Checking ${position} of ${connectionImport.total_count}${current ? ` · ${current.name}` : ""}`;
   }
   if (connectionImport.status === "sending") {
-    return `Sending requests. ${connectionImport.processed_count} of ${connectionImport.total_count} complete.`;
+    const current = connectionImport.people.find(
+      (person) => person.status === "sending",
+    );
+    const position = Math.min(
+      connectionImport.processed_count + (current ? 1 : 0),
+      connectionImport.total_count,
+    );
+    return `Sending ${position} of ${connectionImport.total_count}${current ? ` · ${current.name}` : ""}`;
   }
-  return `${connectionImport.sent_count} sent, ${connectionImport.pending_count} pending, ${connectionImport.connected_count} connected, ${connectionImport.failed_count} failed.`;
+  return `Finished · ${connectionImport.sent_count} sent, ${connectionImport.pending_count} pending, ${connectionImport.connected_count} connected, ${connectionImport.failed_count} failed`;
 }
 
 function phaseLabel(connectionImport: ConnectionImport) {
