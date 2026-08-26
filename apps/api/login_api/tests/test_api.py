@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from login_api.cli_login import LoginSnapshot, LoginState
-from login_api.models import WorkItem
+from login_api.models import Invitation, Message, Person, WorkItem
 
 
 def snapshot(state: LoginState) -> LoginSnapshot:
@@ -161,3 +161,46 @@ class LoginApiTests(TestCase):
         assert response.status_code == 200
         assert response.json()["state"] == "no_pending"
         enqueue.assert_called_once_with(force=True)
+
+    def test_deletes_person_and_local_outreach_records(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(person=person)
+        message = Message.objects.create(invitation=invitation, body="Hello Ada")
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+        )
+
+        response = self.client.delete(f"/api/people/{person.id}")
+
+        assert response.status_code == 204
+        assert not Person.objects.filter(pk=person.id).exists()
+        assert not Invitation.objects.filter(pk=invitation.id).exists()
+        assert not Message.objects.filter(pk=message.id).exists()
+        assert not WorkItem.objects.filter(message_id=message.id).exists()
+
+    def test_rejects_person_delete_while_their_action_is_running(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(person=person)
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            status=WorkItem.Status.RUNNING,
+            invitation=invitation,
+            due_at=timezone.now(),
+        )
+
+        response = self.client.delete(f"/api/people/{person.id}")
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": "Wait for the current action to finish."
+        }
+        assert Person.objects.filter(pk=person.id).exists()
+
+    def test_returns_not_found_when_deleting_unknown_person(self):
+        response = self.client.delete("/api/people/not-a-person")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Person not found."}

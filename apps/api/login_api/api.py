@@ -1,5 +1,7 @@
 from typing import Literal
 
+from django.core.exceptions import ValidationError
+from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
 
@@ -22,6 +24,7 @@ from .message_templates import (
     list_template_fields,
     save_active_template,
 )
+from .models import Person, WorkItem
 
 
 class HealthOut(Schema):
@@ -208,6 +211,28 @@ def automation_work_item(request, work_item_id: str):
 @api.get("/people", response=list[OutreachPersonOut])
 def people(request):
     return list_people()
+
+
+@api.delete(
+    "/people/{person_id}",
+    response={204: None, 404: ErrorOut, 409: ErrorOut},
+)
+def delete_person(request, person_id: str):
+    try:
+        person = Person.objects.get(pk=person_id)
+    except (Person.DoesNotExist, ValidationError, ValueError):
+        return Status(404, {"detail": "Person not found."})
+
+    active_work = WorkItem.objects.filter(status=WorkItem.Status.RUNNING).filter(
+        Q(kind=WorkItem.Kind.CHECK_ACCEPTANCES)
+        | Q(invitation__person=person)
+        | Q(message__invitation__person=person)
+    )
+    if active_work.exists():
+        return Status(409, {"detail": "Wait for the current action to finish."})
+
+    person.delete()
+    return Status(204, None)
 
 
 @api.get("/message-template", response={200: MessageTemplateOut, 204: None})
