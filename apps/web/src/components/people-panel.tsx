@@ -1,11 +1,33 @@
 "use client";
 
-import { ExternalLink, LoaderCircle } from "lucide-react";
+import {
+  ExternalLink,
+  LoaderCircle,
+  MoreVertical,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -100,6 +122,11 @@ export function PeoplePanel() {
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [requestedWorkId, setRequestedWorkId] = useState<string | null>(null);
+  const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [deleteTargets, setDeleteTargets] = useState<Person[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
 
@@ -148,6 +175,17 @@ export function PeoplePanel() {
     () => people.filter((person) => matchesFilter(person, filter)),
     [filter, people],
   );
+  const selectedPeople = useMemo(
+    () => people.filter((person) => selectedPersonIds.has(person.id)),
+    [people, selectedPersonIds],
+  );
+  const selectedVisibleCount = visiblePeople.filter((person) =>
+    selectedPersonIds.has(person.id),
+  ).length;
+  const allVisibleSelected =
+    visiblePeople.length > 0 && selectedVisibleCount === visiblePeople.length;
+  const someVisibleSelected =
+    selectedVisibleCount > 0 && selectedVisibleCount < visiblePeople.length;
 
   async function checkNow() {
     setConfirmation("");
@@ -170,6 +208,81 @@ export function PeoplePanel() {
     }
     setRequestedWorkId(data.work_item_id);
     await load();
+  }
+
+  async function deletePerson() {
+    if (deleteTargets.length === 0) return;
+
+    const peopleToDelete = deleteTargets;
+    setIsDeleting(true);
+    setConfirmation("");
+    setError("");
+    const results = await Promise.all(
+      peopleToDelete.map(async (person) => {
+        try {
+          const response = await fetch(apiUrl + "/people/" + person.id, {
+            method: "DELETE",
+          });
+          if (!response.ok) {
+            const data = (await response.json().catch(() => ({}))) as {
+              detail?: string;
+            };
+            throw new Error(data.detail ?? "Person could not be deleted.");
+          }
+          return { person, error: null };
+        } catch (deleteError) {
+          return {
+            person,
+            error:
+              deleteError instanceof Error
+                ? deleteError.message
+                : "Person could not be deleted.",
+          };
+        }
+      }),
+    );
+
+    const deletedIds = new Set(
+      results.filter((result) => !result.error).map((result) => result.person.id),
+    );
+    const failures = results.filter((result) => result.error);
+    if (deletedIds.size > 0) {
+      setPeople((current) =>
+        current.filter((person) => !deletedIds.has(person.id)),
+      );
+      setSelectedPersonIds((current) => {
+        const next = new Set(current);
+        for (const id of deletedIds) next.delete(id);
+        return next;
+      });
+    }
+    setDeleteTargets([]);
+    setIsDeleting(false);
+
+    if (failures.length > 0) {
+      const firstFailure = failures[0];
+      setError(
+        `${failures.length} ${personWord(failures.length)} could not be deleted. ${firstFailure.person.name}: ${firstFailure.error}`,
+      );
+    } else {
+      setConfirmation(
+        `${deletedIds.size} ${personWord(deletedIds.size)} deleted.`,
+      );
+    }
+  }
+
+  function toggleVisiblePeople(checked: boolean) {
+    setSelectedPersonIds((current) => {
+      const next = new Set(current);
+      for (const person of visiblePeople) {
+        if (checked) {
+          next.add(person.id);
+        } else {
+          next.delete(person.id);
+        }
+      }
+      return next;
+    });
   }
 
   const isChecking = requestedWorkId !== null;
@@ -207,37 +320,84 @@ export function PeoplePanel() {
           </Alert>
         ) : null}
 
-        <div className="flex flex-wrap gap-1" aria-label="Filter people">
-          {filters.map((item) => (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1" aria-label="Filter people">
+            {filters.map((item) => (
+              <Button
+                key={item.id}
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setFilter(item.id)}
+                aria-pressed={filter === item.id}
+                className={cn(filter === item.id && "bg-muted text-foreground")}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+          {selectedPeople.length > 0 ? (
             <Button
-              key={item.id}
               type="button"
               size="sm"
-              variant="ghost"
-              onClick={() => setFilter(item.id)}
-              aria-pressed={filter === item.id}
-              className={cn(filter === item.id && "bg-muted text-foreground")}
+              variant="destructive"
+              onClick={() => setDeleteTargets(selectedPeople)}
             >
-              {item.label}
+              <Trash2 aria-hidden="true" />
+              Delete selected ({selectedPeople.length})
             </Button>
-          ))}
+          ) : null}
         </div>
 
         <div className="overflow-x-auto rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-12 px-3">
+                  <Checkbox
+                    aria-label="Select all visible people"
+                    checked={allVisibleSelected}
+                    indeterminate={someVisibleSelected}
+                    disabled={visiblePeople.length === 0}
+                    onCheckedChange={toggleVisiblePeople}
+                  />
+                </TableHead>
                 <TableHead className="px-3 font-normal">Name</TableHead>
                 <TableHead className="px-3 font-normal">Invitation</TableHead>
                 <TableHead className="px-3 font-normal">Message</TableHead>
                 <TableHead className="px-3 text-right font-normal">
                   Last activity
                 </TableHead>
+                <TableHead className="w-12 px-2">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visiblePeople.map((person) => (
-                <TableRow key={person.id}>
+                <TableRow
+                  key={person.id}
+                  data-state={
+                    selectedPersonIds.has(person.id) ? "selected" : undefined
+                  }
+                >
+                  <TableCell className="w-12 px-3">
+                    <Checkbox
+                      aria-label={`Select ${person.name}`}
+                      checked={selectedPersonIds.has(person.id)}
+                      onCheckedChange={(checked) => {
+                        setSelectedPersonIds((current) => {
+                          const next = new Set(current);
+                          if (checked) {
+                            next.add(person.id);
+                          } else {
+                            next.delete(person.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  </TableCell>
                   <TableCell className="px-3">
                     <a
                       href={person.linkedin_url}
@@ -258,6 +418,31 @@ export function PeoplePanel() {
                   <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
                     {formatDate(person.last_activity_at)}
                   </TableCell>
+                  <TableCell className="px-2 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Actions for ${person.name}`}
+                          />
+                        }
+                      >
+                        <MoreVertical aria-hidden="true" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-36">
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeleteTargets([person])}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -269,6 +454,45 @@ export function PeoplePanel() {
           ) : null}
         </div>
       </CardContent>
+
+      <AlertDialog
+        open={deleteTargets.length > 0}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setDeleteTargets([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTargets.length === 1
+                ? `Delete ${deleteTargets[0].name}?`
+                : `Delete ${deleteTargets.length} people?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes their local invitation, message, and activity. Past
+              import rows stay. Nothing changes on LinkedIn.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              aria-busy={isDeleting}
+              onClick={() => void deletePerson()}
+            >
+              {deleteTargets.length === 1
+                ? "Delete person"
+                : `Delete ${deleteTargets.length} people`}
+              {isDeleting ? (
+                <LoaderCircle className="animate-spin" aria-hidden="true" />
+              ) : null}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -319,4 +543,8 @@ function workerLine(worker: WorkerStatus | null, checking: boolean) {
 
 function formatDate(value: string) {
   return dateFormatter.format(new Date(value));
+}
+
+function personWord(count: number) {
+  return count === 1 ? "person" : "people";
 }

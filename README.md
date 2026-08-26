@@ -73,6 +73,8 @@ GET  /api/connections/imports
 GET  /api/connections/import/{id}
 POST /api/connections/import/{id}/approve
 POST /api/connections/acceptance/refresh
+GET  /api/people
+DELETE /api/people/{id}
 ```
 
 `POST /api/auth/login` launches the existing `python apps/cli/main.py login` flow in a background thread. The status endpoint returns `idle`, `waiting`, `authenticated`, or `failed`.

@@ -208,6 +208,9 @@ export function ConnectionImportPanel({
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [selectedActivityRows, setSelectedActivityRows] = useState<Set<string>>(
+    new Set(),
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [acceptanceActivity, setAcceptanceActivity] = useState("");
@@ -436,6 +439,13 @@ export function ConnectionImportPanel({
   const sentInvitationCount = activity.filter(
     ({ person }) => person.status === "sent",
   ).length;
+  const selectedActivityCount = activity.filter(({ importId, person }) =>
+    selectedActivityRows.has(activityRowId(importId, person.row_number)),
+  ).length;
+  const allActivitySelected =
+    activity.length > 0 && selectedActivityCount === activity.length;
+  const someActivitySelected =
+    selectedActivityCount > 0 && selectedActivityCount < activity.length;
   const canSelectPeople = connectionImport?.status === "awaiting_approval";
   const readyPeople = canSelectPeople
     ? connectionImport.people.filter((person) => person.status === "ready")
@@ -728,6 +738,30 @@ export function ConnectionImportPanel({
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableHead className="w-12 px-3">
+                          <Checkbox
+                            aria-label="Select all invitation history"
+                            checked={allActivitySelected}
+                            indeterminate={someActivitySelected}
+                            onCheckedChange={(checked) => {
+                              setSelectedActivityRows((current) => {
+                                const next = new Set(current);
+                                for (const { importId, person } of activity) {
+                                  const rowId = activityRowId(
+                                    importId,
+                                    person.row_number,
+                                  );
+                                  if (checked) {
+                                    next.add(rowId);
+                                  } else {
+                                    next.delete(rowId);
+                                  }
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableHead>
                         <TableHead className="px-3 font-normal">Name</TableHead>
                         <TableHead className="px-3 font-normal">Status</TableHead>
                         <TableHead className="px-3 text-right font-normal">
@@ -736,24 +770,56 @@ export function ConnectionImportPanel({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {activity.map(({ importId, person }) => (
-                        <TableRow key={`${importId}:${person.row_number}`}>
-                          <TableCell className="px-3">{person.name}</TableCell>
-                          <TableCell className="px-3">
-                            <div className="flex max-w-sm flex-col items-start gap-1.5">
-                              <StatusPill status={person.status} />
-                              {person.status === "failed" && person.error ? (
-                                <span className="whitespace-normal text-xs leading-4 text-destructive">
-                                  {person.error}
-                                </span>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
-                            {formatDate(person.sent_at)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {activity.map(({ importId, person }) => {
+                        const rowId = activityRowId(
+                          importId,
+                          person.row_number,
+                        );
+                        return (
+                          <TableRow
+                            key={rowId}
+                            data-state={
+                              selectedActivityRows.has(rowId)
+                                ? "selected"
+                                : undefined
+                            }
+                          >
+                            <TableCell className="w-12 px-3">
+                              <Checkbox
+                                aria-label={`Select ${person.name}`}
+                                checked={selectedActivityRows.has(rowId)}
+                                onCheckedChange={(checked) => {
+                                  setSelectedActivityRows((current) => {
+                                    const next = new Set(current);
+                                    if (checked) {
+                                      next.add(rowId);
+                                    } else {
+                                      next.delete(rowId);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell className="px-3">
+                              {person.name}
+                            </TableCell>
+                            <TableCell className="px-3">
+                              <div className="flex max-w-sm flex-col items-start gap-1.5">
+                                <StatusPill status={person.status} />
+                                {person.status === "failed" && person.error ? (
+                                  <span className="whitespace-normal text-xs leading-4 text-destructive">
+                                    {person.error}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
+                              {formatDate(person.sent_at)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -814,4 +880,8 @@ function acceptanceSummary(result: AcceptanceRefreshResult) {
 
 function pluralize(noun: string, count: number) {
   return count === 1 ? noun : `${noun}s`;
+}
+
+function activityRowId(importId: string, rowNumber: number) {
+  return `${importId}:${rowNumber}`;
 }

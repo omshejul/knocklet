@@ -16,3 +16,11 @@
 - Retrieved: 2026-08-26
 - License terms: https://www.shadcnblocks.com/license
 - Added content: shadcn theme tokens in `src/app/globals.css`
+
+## Shadcnblocks table row actions
+
+- Source: https://www.shadcnblocks.com/block/dropdown-menu-dropdown-menu-actions-2
+- Registry item: `@shadcnblocks/dropdown-menu-dropdown-menu-actions-2`
+- Retrieved: 2026-08-26
+- License terms: https://www.shadcnblocks.com/license
+- Adapted content: per-row action menu in `src/components/people-panel.tsx`
