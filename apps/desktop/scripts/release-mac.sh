@@ -52,6 +52,17 @@ done
 
 codesign --verify --deep --strict --verbose=2 "$app_path"
 codesign -dv --verbose=4 "$app_path" 2>&1 | rg "Authority=Developer ID Application|Timestamp=|flags=.*runtime"
+signing_identity=$(
+  codesign -dv --verbose=4 "$app_path" 2>&1 |
+    sed -n 's/^Authority=\(Developer ID Application:.*\)$/\1/p' |
+    head -n 1
+)
+if [[ -z "$signing_identity" ]]; then
+  echo "Release refused: the app has no Developer ID Application identity." >&2
+  exit 1
+fi
+codesign --force --timestamp --sign "$signing_identity" "$dmg_path"
+codesign --verify --strict --verbose=2 "$dmg_path"
 
 ASC_UPLOAD_TIMEOUT=10m asc notarization submit \
   --file "$dmg_path" \
@@ -70,6 +81,7 @@ xcrun stapler validate "$app_path"
 xcrun stapler staple "$dmg_path"
 xcrun stapler validate "$dmg_path"
 spctl --assess --type execute --verbose=4 "$app_path"
+spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 shasum -a 256 "$dmg_path"
 shasum -a 256 "$zip_path"
 
@@ -82,7 +94,7 @@ artifacts+=("$latest_path")
 gh release create "$tag" "${artifacts[@]}" \
   --target "$(git rev-parse HEAD)" \
   --title "Knocklet ${version}" \
-  --notes "Fixes acceptance checks and automatic message delivery after a connection is accepted." \
+  --notes "Fixes acceptance checks, automatic message delivery, and macOS installer verification." \
   --latest
 
 published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
