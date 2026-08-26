@@ -2,7 +2,6 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  ChevronDown,
   CircleCheck,
   LoaderCircle,
   UploadCloud,
@@ -156,7 +155,6 @@ export function ConnectionImportPanel({
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [acceptanceResult, setAcceptanceResult] =
@@ -253,7 +251,6 @@ export function ConnectionImportPanel({
             .map((person) => person.row_number),
         ),
       );
-      setDetailsOpen(true);
       setHistory((current) =>
         upsertImport(current, imported),
       );
@@ -299,7 +296,6 @@ export function ConnectionImportPanel({
       }
       setConnectionImport(data as ConnectionImport);
       setSelectedRows(new Set());
-      setDetailsOpen(false);
       setHistory((current) =>
         upsertImport(current, data as ConnectionImport),
       );
@@ -388,7 +384,6 @@ export function ConnectionImportPanel({
                     setFile(files[0] ?? null);
                     setConnectionImport(null);
                     setSelectedRows(new Set());
-                    setDetailsOpen(false);
                     setError("");
                   }}
                   onFileReject={(_, message) => {
@@ -457,55 +452,33 @@ export function ConnectionImportPanel({
 
               {connectionImport ? (
                 <motion.div {...appear(reducedMotion)} className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div
-                      className="min-w-0 flex-1"
-                      aria-live="polite"
-                      aria-atomic="true"
-                    >
-                      {isRunning(connectionImport) ? (
-                        <Progress
-                          value={connectionImport.progress_percent}
-                          aria-label={`${phaseLabel(connectionImport)} progress`}
-                          className="gap-2"
-                        >
-                          <ProgressLabel>
-                            {summary(connectionImport)}
-                          </ProgressLabel>
-                          <ProgressValue />
-                        </Progress>
-                      ) : (
-                        <p className="pt-2 text-sm text-muted-foreground">
+                  <div
+                    className="min-w-0"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {isRunning(connectionImport) ? (
+                      <Progress
+                        value={connectionImport.progress_percent}
+                        aria-label={`${phaseLabel(connectionImport)} progress`}
+                        className="gap-2"
+                      >
+                        <ProgressLabel>
                           {summary(connectionImport)}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0"
-                      aria-expanded={detailsOpen}
-                      aria-controls="connection-import-details"
-                      onClick={() => setDetailsOpen((current) => !current)}
-                    >
-                      {detailsOpen ? "Hide" : "Show"} details
-                      <ChevronDown
-                        className={detailsOpen ? "rotate-180" : undefined}
-                        aria-hidden="true"
-                      />
-                    </Button>
+                        </ProgressLabel>
+                        <ProgressValue />
+                      </Progress>
+                    ) : (
+                      <p className="pt-2 text-sm text-muted-foreground">
+                        {summary(connectionImport)}
+                      </p>
+                    )}
                   </div>
 
-                  <AnimatePresence initial={false}>
-                    {detailsOpen ? (
-                      <motion.div
-                        key="connection-import-details"
-                        id="connection-import-details"
-                        {...appear(reducedMotion)}
-                        className="overflow-hidden rounded-xl border"
-                        aria-label="Imported people"
-                      >
+                  <div
+                    className="overflow-hidden rounded-xl border"
+                    aria-label="Imported people"
+                  >
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -589,9 +562,7 @@ export function ConnectionImportPanel({
                             ))}
                           </TableBody>
                         </Table>
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
+                  </div>
 
                   {connectionImport.status === "awaiting_approval" &&
                   connectionImport.ready_count > 0 ? (
