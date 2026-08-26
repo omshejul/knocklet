@@ -82,7 +82,7 @@ artifacts+=("$latest_path")
 gh release create "$tag" "${artifacts[@]}" \
   --target "$(git rev-parse HEAD)" \
   --title "Knocklet ${version}" \
-  --notes "Profile links now open in your default browser." \
+  --notes "Fixes acceptance checks and automatic message delivery after a connection is accepted." \
   --latest
 
 published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
