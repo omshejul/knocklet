@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import { UploadCloud, X } from "lucide-react";
+import { LoaderCircle, UploadCloud, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -32,6 +32,7 @@ type PersonStatus =
   | "duplicate"
   | "sending"
   | "sent"
+  | "accepted"
   | "failed";
 
 type ImportedPerson = {
@@ -41,6 +42,10 @@ type ImportedPerson = {
   public_id: string;
   status: PersonStatus;
   error: string | null;
+  provider_status: number | null;
+  sent_at: string | null;
+  accepted_at: string | null;
+  checked_at: string | null;
 };
 
 type ConnectionImport = {
@@ -50,11 +55,39 @@ type ConnectionImport = {
   people: ImportedPerson[];
   ready_count: number;
   sent_count: number;
+  accepted_count: number;
   failed_count: number;
   skipped_count: number;
+  created_at: string;
+  approved_at: string | null;
+  completed_at: string | null;
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+
+function upsertImport(
+  current: ConnectionImport[],
+  nextImport: ConnectionImport,
+) {
+  return [
+    nextImport,
+    ...current.filter((item) => item.id !== nextImport.id),
+  ];
+}
+
+async function fetchImportHistory(): Promise<ConnectionImport[]> {
+  const response = await fetch(apiUrl + "/connections/imports", {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("History could not be loaded.");
+  }
+  return response.json();
+}
 
 function appear(reduced: boolean | null) {
   return {
@@ -76,8 +109,28 @@ export function ConnectionImportPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [connectionImport, setConnectionImport] =
     useState<ConnectionImport | null>(null);
+  const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void fetchImportHistory()
+      .then((imports) => {
+        if (active) {
+          setHistory(imports);
+        }
+      })
+      .catch((historyError: Error) => {
+        if (active) {
+          setError(historyError.message);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (connectionImport?.status !== "sending") {
@@ -98,6 +151,7 @@ export function ConnectionImportPanel() {
         .then((data: ConnectionImport) => {
           if (active) {
             setConnectionImport(data);
+            setHistory((current) => upsertImport(current, data));
           }
         })
         .catch(() => {
@@ -134,6 +188,9 @@ export function ConnectionImportPanel() {
         throw new Error(data.detail || "CSV could not be imported.");
       }
       setConnectionImport(data as ConnectionImport);
+      setHistory((current) =>
+        upsertImport(current, data as ConnectionImport),
+      );
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -161,6 +218,9 @@ export function ConnectionImportPanel() {
         throw new Error(data.detail || "Requests could not be started.");
       }
       setConnectionImport(data as ConnectionImport);
+      setHistory((current) =>
+        upsertImport(current, data as ConnectionImport),
+      );
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -169,6 +229,45 @@ export function ConnectionImportPanel() {
       );
     }
   }
+
+  async function refreshAcceptance() {
+    setIsCheckingAcceptance(true);
+    setError("");
+    try {
+      const response = await fetch(apiUrl + "/connections/acceptance/refresh", {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Accepted invitations could not be checked.");
+      }
+      const imports = await fetchImportHistory();
+      setHistory(imports);
+      setConnectionImport((current) =>
+        current ? imports.find((item) => item.id === current.id) ?? current : null,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Accepted invitations could not be checked.",
+      );
+    } finally {
+      setIsCheckingAcceptance(false);
+    }
+  }
+
+  const activity = history
+    .flatMap((item) =>
+      item.people.map((person) => ({ importId: item.id, person })),
+    )
+    .filter(({ person }) =>
+      ["sending", "sent", "failed", "accepted"].includes(person.status),
+    )
+    .slice(0, 100);
+  const hasPendingAcceptance = activity.some(
+    ({ person }) => person.status === "sent",
+  );
 
   return (
     <motion.div {...appear(reducedMotion)} className="mt-5">
@@ -296,6 +395,64 @@ export function ConnectionImportPanel() {
           ) : null}
         </CardContent>
       </Card>
+
+      {activity.length > 0 ? (
+        <motion.div {...appear(reducedMotion)} className="mt-5">
+          <Card className="shadow-xl shadow-black/40">
+            <CardContent className="space-y-3 px-4 sm:px-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-bold">History</h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={refreshAcceptance}
+                  disabled={!hasPendingAcceptance || isCheckingAcceptance}
+                  aria-busy={isCheckingAcceptance}
+                  className="min-h-11"
+                >
+                  Check accepted
+                  {isCheckingAcceptance ? (
+                    <LoaderCircle
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </Button>
+              </div>
+
+              <div
+                className="overflow-hidden rounded-xl border"
+                aria-label="Invitation history"
+              >
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableHead className="px-3 font-bold">Name</TableHead>
+                      <TableHead className="px-3 font-bold">Status</TableHead>
+                      <TableHead className="px-3 text-right font-bold">
+                        Sent
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {activity.map(({ importId, person }) => (
+                      <TableRow key={`${importId}:${person.row_number}`}>
+                        <TableCell className="px-3">{person.name}</TableCell>
+                        <TableCell className="px-3">
+                          <StatusBadge status={person.status} />
+                        </TableCell>
+                        <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
+                          {formatDate(person.sent_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      ) : null}
     </motion.div>
   );
 }
@@ -304,7 +461,7 @@ function StatusBadge({ status }: { status: PersonStatus }) {
   if (status === "failed" || status === "invalid") {
     return <Badge variant="destructive">{status}</Badge>;
   }
-  if (status === "sent") {
+  if (status === "accepted") {
     return (
       <Badge className="border-success/30 bg-success/15 text-success">
         {status}
@@ -325,4 +482,11 @@ function summary(connectionImport: ConnectionImport) {
     return `Sending. ${connectionImport.sent_count} sent, ${connectionImport.failed_count} failed.`;
   }
   return `${connectionImport.sent_count} sent, ${connectionImport.failed_count} failed, ${connectionImport.skipped_count} skipped.`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+  return dateFormatter.format(new Date(value));
 }
