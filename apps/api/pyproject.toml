@@ -21,3 +21,8 @@ include = ["linkedin_api*", "login_api*"]
 
 [tool.uv.sources]
 linkedin-cli = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.2",
+]

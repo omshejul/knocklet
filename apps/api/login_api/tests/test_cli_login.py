@@ -1,6 +1,8 @@
 import json
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -46,3 +48,23 @@ class LoginManagerTests(SimpleTestCase):
 
             assert manager.start().status == LoginState.WAITING
             assert manager.wait_for_completion().status == LoginState.AUTHENTICATED
+
+    def test_packaged_login_relaunches_the_runtime(self):
+        with TemporaryDirectory() as directory:
+            cookies_file = Path(directory) / "cookies.json"
+            captured_command = None
+
+            def start_process(command, **kwargs):
+                nonlocal captured_command
+                captured_command = command
+                return CompletedProcess(cookies_file)
+
+            manager = LoginManager(
+                cookies_file=cookies_file,
+                popen_factory=start_process,
+            )
+            with patch.object(sys, "frozen", True, create=True):
+                manager.start()
+                manager.wait_for_completion()
+
+            assert captured_command == [sys.executable, "login"]

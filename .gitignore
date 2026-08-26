@@ -13,3 +13,5 @@ dist/
 build/
 *.egg-info/
 *.sqlite3*
+apps/desktop/runtime-build/
+apps/desktop/runtime-dist/

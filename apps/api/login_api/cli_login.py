@@ -116,9 +116,14 @@ class LoginManager:
 
     def _run(self) -> None:
         try:
+            command = (
+                [sys.executable, "login"]
+                if getattr(sys, "frozen", False)
+                else [sys.executable, str(self.cli_entrypoint), "login"]
+            )
             process = self.popen_factory(
-                [sys.executable, str(self.cli_entrypoint), "login"],
-                cwd=self.cli_entrypoint.parent,
+                command,
+                cwd=None if getattr(sys, "frozen", False) else self.cli_entrypoint.parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
