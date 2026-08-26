@@ -63,23 +63,62 @@ def test_falls_back_to_the_legacy_sent_invitation_view():
     assert len(calls) == 2
 
 
-def test_reads_direct_connection_distance():
+def test_search_relationship_marks_first_degree_as_connected():
     client = object.__new__(LinkedinClient)
-    client.get_profile_network_info = lambda public_id: {
-        "data": {"distance": {"value": "DISTANCE_1"}}
-    }
+    calls = []
+
+    def search_people(keywords, limit, raise_for_status):
+        calls.append((keywords, limit, raise_for_status))
+        return [
+            {"public_id": "not-ada", "connection_degree": "1st"},
+            {"public_id": "ada", "connection_degree": "1st"},
+        ]
+
+    client.search_people = search_people
 
     assert client.get_connection_state("ada") == "connected"
+    assert calls == [("ada", 10, True)]
 
 
-def test_returns_unknown_when_connection_distance_is_missing():
+def test_search_relationship_marks_second_and_third_degree_as_not_connected():
     client = object.__new__(LinkedinClient)
-    client.get_profile_network_info = lambda public_id: {"data": {}}
+    degrees = iter(["2nd", "3rd+"])
+    client.search_people = lambda **kwargs: [
+        {"public_id": kwargs["keywords"], "connection_degree": next(degrees)}
+    ]
+
+    assert client.get_connection_state("ada") == "not_connected"
+    assert client.get_connection_state("grace") == "not_connected"
+
+
+def test_search_relationship_falls_back_to_name_and_requires_exact_profile():
+    client = object.__new__(LinkedinClient)
+    calls = []
+
+    def search_people(keywords, limit, raise_for_status):
+        calls.append(keywords)
+        if keywords == "ada":
+            return [{"public_id": "ada-lovelace", "connection_degree": "1st"}]
+        return [{"public_id": "ada", "connection_degree": "2nd"}]
+
+    client.search_people = search_people
+
+    assert client.get_connection_state("ada", name="Ada Lovelace") == (
+        "not_connected"
+    )
+    assert calls == ["ada", "Ada Lovelace"]
+
+
+def test_search_relationship_returns_unknown_when_exact_profile_is_missing():
+    client = object.__new__(LinkedinClient)
+    client.search_people = lambda **kwargs: [
+        {"public_id": "not-ada", "connection_degree": "1st"}
+    ]
 
     assert client.get_connection_state("ada") == "unknown"
 
 
-def test_network_info_raises_the_linkedin_http_error():
+def test_search_relationship_preserves_linkedin_http_errors():
     client = object.__new__(LinkedinClient)
     client.driver = GoneDriver()
     client._limiter = FakeLimiter()
@@ -88,6 +127,6 @@ def test_network_info_raises_the_linkedin_http_error():
         LinkedinAPIError,
         match=r"LinkedIn returned HTTP 410 Gone\.",
     ) as error:
-        client.get_profile_network_info("ada")
+        client.get_connection_state("ada")
 
     assert error.value.status == 410

@@ -445,7 +445,8 @@ class ConnectionImportStore:
                 status_error = None
                 try:
                     connection_state = client.get_connection_state(
-                        connection_request.public_id
+                        connection_request.public_id,
+                        name=connection_request.name,
                     )
                 except Exception as error:
                     connection_state = "unknown"

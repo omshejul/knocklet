@@ -20,13 +20,15 @@ def _xlsx(rows: list[list[str]]) -> bytes:
 class FakeLinkedInClient:
     def __init__(self, pending=None, connection_states=None):
         self.public_ids = []
+        self.checked_profiles = []
         self.pending = pending or set()
         self.connection_states = connection_states or {}
 
     def get_sent_invitation_public_ids(self):
         return self.pending
 
-    def get_connection_state(self, public_id):
+    def get_connection_state(self, public_id, name=""):
+        self.checked_profiles.append((public_id, name))
         return self.connection_states.get(public_id, "not_connected")
 
     def add_connection(self, profile_public_id: str):
@@ -45,7 +47,7 @@ class FakeAcceptanceClient:
 
 
 class FailingPreflightClient(FakeLinkedInClient):
-    def get_connection_state(self, public_id):
+    def get_connection_state(self, public_id, name=""):
         error = RuntimeError("LinkedIn returned HTTP 410 Gone.")
         error.status = 410
         raise error
@@ -178,6 +180,10 @@ class ConnectionImportPersistenceTests(TransactionTestCase):
         completed = store.wait(connection_import["id"])
 
         assert client.public_ids == ["linus"]
+        assert client.checked_profiles == [
+            ("grace", "Grace"),
+            ("linus", "Linus"),
+        ]
         assert [person["status"] for person in completed["people"]] == [
             "pending",
             "connected",

@@ -1261,24 +1261,48 @@ class LinkedinClient:
 
         return public_ids
 
-    def get_connection_state(self, public_profile_id: str) -> str:
+    def get_connection_state(self, public_profile_id: str, name: str = "") -> str:
         """Return connected, not_connected, or unknown for one profile."""
-        data = self.get_profile_network_info(public_profile_id)
-        root = data.get("data", data)
-        distance = root.get("distance")
-        if isinstance(distance, str):
-            included_by_id = {
-                item.get("$id"): item
-                for item in data.get("included", [])
-                if item.get("$id")
-            }
-            distance = included_by_id.get(distance, distance)
-        if isinstance(distance, dict):
-            distance = distance.get("value")
+        import re
 
-        if distance == "DISTANCE_1":
+        profiles = self.search_people(
+            keywords=public_profile_id,
+            limit=10,
+            raise_for_status=True,
+        )
+        profile = next(
+            (
+                item
+                for item in profiles
+                if item.get("public_id", "").casefold()
+                == public_profile_id.casefold()
+            ),
+            None,
+        )
+        if profile is None and name:
+            profiles = self.search_people(
+                keywords=name,
+                limit=10,
+                raise_for_status=True,
+            )
+            profile = next(
+                (
+                    item
+                    for item in profiles
+                    if item.get("public_id", "").casefold()
+                    == public_profile_id.casefold()
+                ),
+                None,
+            )
+
+        if profile is None:
+            return "unknown"
+
+        degree = profile.get("connection_degree", "").casefold()
+        degree_match = re.search(r"(?:^|\W)(1st|2nd|3rd)(?:\W|$)", degree)
+        if degree_match and degree_match.group(1) == "1st":
             return "connected"
-        if distance in {"DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"}:
+        if degree_match and degree_match.group(1) in {"2nd", "3rd"}:
             return "not_connected"
         return "unknown"
 
@@ -1354,7 +1378,13 @@ class LinkedinClient:
             f"return (async () => {{ {script} }})()", url, payload
         )
 
-    def search_people(self, keywords=None, limit=25, **kwargs) -> list:
+    def search_people(
+        self,
+        keywords=None,
+        limit=25,
+        raise_for_status=False,
+        **kwargs,
+    ) -> list:
         kw = keywords or ""
         # Merge keyword-based filters into the keywords string
         for k in ("keyword_company", "keyword_title", "keyword_school"):
@@ -1378,7 +1408,8 @@ class LinkedinClient:
                 f"/search/dash/clusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-175"
                 f"&origin=GLOBAL_SEARCH_HEADER&q=all&start={start}&count={count}"
                 f"&query=(keywords:{kw},flagshipSearchIntent:SEARCH_SRP"
-                f",queryParameters:({qp_str}))"
+                f",queryParameters:({qp_str}))",
+                raise_for_status=raise_for_status,
             )
             page = self._extract_search_results(data)
             results.extend(page)
