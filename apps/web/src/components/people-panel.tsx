@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { useRangeSelection } from "@/hooks/use-range-selection";
 import { cn } from "@/lib/utils";
 
 type Person = {
@@ -175,6 +176,13 @@ export function PeoplePanel() {
     () => people.filter((person) => matchesFilter(person, filter)),
     [filter, people],
   );
+  const {
+    resetRangeAnchor: resetPersonRangeAnchor,
+    toggleRangeSelection: togglePersonRange,
+  } = useRangeSelection(
+    visiblePeople.map((person) => person.id),
+    setSelectedPersonIds,
+  );
   const selectedPeople = useMemo(
     () => people.filter((person) => selectedPersonIds.has(person.id)),
     [people, selectedPersonIds],
@@ -283,6 +291,7 @@ export function PeoplePanel() {
       }
       return next;
     });
+    resetPersonRangeAnchor();
   }
 
   const isChecking = requestedWorkId !== null;
@@ -328,7 +337,10 @@ export function PeoplePanel() {
                 type="button"
                 size="sm"
                 variant="ghost"
-                onClick={() => setFilter(item.id)}
+                onClick={() => {
+                  setFilter(item.id);
+                  resetPersonRangeAnchor();
+                }}
                 aria-pressed={filter === item.id}
                 className={cn(filter === item.id && "bg-muted text-foreground")}
               >
@@ -385,16 +397,12 @@ export function PeoplePanel() {
                     <Checkbox
                       aria-label={`Select ${person.name}`}
                       checked={selectedPersonIds.has(person.id)}
-                      onCheckedChange={(checked) => {
-                        setSelectedPersonIds((current) => {
-                          const next = new Set(current);
-                          if (checked) {
-                            next.add(person.id);
-                          } else {
-                            next.delete(person.id);
-                          }
-                          return next;
-                        });
+                      onCheckedChange={(checked, eventDetails) => {
+                        togglePersonRange(
+                          person.id,
+                          Boolean(checked),
+                          eventDetails.event,
+                        );
                       }}
                     />
                   </TableCell>

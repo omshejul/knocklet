@@ -7,7 +7,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { useRangeSelection } from "@/hooks/use-range-selection";
 
 type PersonStatus =
   | "ready"
@@ -208,8 +209,6 @@ export function ConnectionImportPanel({
     useState<ConnectionImport | null>(null);
   const [history, setHistory] = useState<ConnectionImport[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const selectionAnchorRef = useRef<number | null>(null);
-  const shiftPressedRef = useRef(false);
   const [selectedActivityRows, setSelectedActivityRows] = useState<Set<string>>(
     new Set(),
   );
@@ -303,14 +302,8 @@ export function ConnectionImportPanel({
       }
       const imported = data as ConnectionImport;
       setConnectionImport(imported);
-      setSelectedRows(
-        new Set(
-          imported.people
-            .filter((person) => person.status === "ready")
-            .map((person) => person.row_number),
-        ),
-      );
-      selectionAnchorRef.current = null;
+      setSelectedRows(new Set());
+      resetReadyRowAnchor();
       setHistory((current) =>
         upsertImport(current, imported),
       );
@@ -426,43 +419,6 @@ export function ConnectionImportPanel({
     }
   }
 
-  function setPersonSelected(
-    rowNumber: number,
-    checked: boolean,
-    selectRange: boolean,
-  ) {
-    const selectableRows =
-      connectionImport?.people
-        .filter((person) => person.status === "ready")
-        .map((person) => person.row_number) ?? [];
-    const anchor = selectionAnchorRef.current;
-    const targetRows = [rowNumber];
-    if (selectRange && anchor !== null) {
-      const anchorIndex = selectableRows.indexOf(anchor);
-      const currentIndex = selectableRows.indexOf(rowNumber);
-      if (anchorIndex >= 0 && currentIndex >= 0) {
-        targetRows.splice(
-          0,
-          targetRows.length,
-          ...selectableRows.slice(
-            Math.min(anchorIndex, currentIndex),
-            Math.max(anchorIndex, currentIndex) + 1,
-          ),
-        );
-      }
-    }
-
-    setSelectedRows((current) => {
-      const next = new Set(current);
-      for (const targetRow of targetRows) {
-        if (checked) next.add(targetRow);
-        else next.delete(targetRow);
-      }
-      return next;
-    });
-    selectionAnchorRef.current = rowNumber;
-  }
-
   const activity = history
     .flatMap((item) =>
       item.people.map((person) => ({ importId: item.id, person })),
@@ -490,6 +446,22 @@ export function ConnectionImportPanel({
   const readyPeople = canSelectPeople
     ? connectionImport.people.filter((person) => person.status === "ready")
     : [];
+  const {
+    resetRangeAnchor: resetReadyRowAnchor,
+    toggleRangeSelection: toggleReadyRow,
+  } = useRangeSelection(
+    readyPeople.map((person) => person.row_number),
+    setSelectedRows,
+  );
+  const {
+    resetRangeAnchor: resetActivityRowAnchor,
+    toggleRangeSelection: toggleActivityRow,
+  } = useRangeSelection(
+    activity.map(({ importId, person }) =>
+      activityRowId(importId, person.row_number),
+    ),
+    setSelectedActivityRows,
+  );
   const selectedReadyCount = readyPeople.filter((person) =>
     selectedRows.has(person.row_number),
   ).length;
@@ -511,7 +483,7 @@ export function ConnectionImportPanel({
                     setFile(files[0] ?? null);
                     setConnectionImport(null);
                     setSelectedRows(new Set());
-                    selectionAnchorRef.current = null;
+                    resetReadyRowAnchor();
                     setError("");
                   }}
                   onFileReject={(_, message) => {
@@ -635,7 +607,7 @@ export function ConnectionImportPanel({
                                         }
                                         return next;
                                       });
-                                      selectionAnchorRef.current = null;
+                                      resetReadyRowAnchor();
                                     }}
                                   />
                                 </TableHead>
@@ -662,16 +634,12 @@ export function ConnectionImportPanel({
                                         person.row_number,
                                       )}
                                       disabled={person.status !== "ready"}
-                                      onClick={(event) => {
-                                        shiftPressedRef.current = event.shiftKey;
-                                      }}
-                                      onCheckedChange={(checked) => {
-                                        setPersonSelected(
+                                      onCheckedChange={(checked, eventDetails) => {
+                                        toggleReadyRow(
                                           person.row_number,
                                           Boolean(checked),
-                                          shiftPressedRef.current,
+                                          eventDetails.event,
                                         );
-                                        shiftPressedRef.current = false;
                                       }}
                                     />
                                   </TableCell>
@@ -807,6 +775,7 @@ export function ConnectionImportPanel({
                                 }
                                 return next;
                               });
+                              resetActivityRowAnchor();
                             }}
                           />
                         </TableHead>
@@ -836,16 +805,12 @@ export function ConnectionImportPanel({
                               <Checkbox
                                 aria-label={`Select ${person.name}`}
                                 checked={selectedActivityRows.has(rowId)}
-                                onCheckedChange={(checked) => {
-                                  setSelectedActivityRows((current) => {
-                                    const next = new Set(current);
-                                    if (checked) {
-                                      next.add(rowId);
-                                    } else {
-                                      next.delete(rowId);
-                                    }
-                                    return next;
-                                  });
+                                onCheckedChange={(checked, eventDetails) => {
+                                  toggleActivityRow(
+                                    rowId,
+                                    Boolean(checked),
+                                    eventDetails.event,
+                                  );
                                 }}
                               />
                             </TableCell>
