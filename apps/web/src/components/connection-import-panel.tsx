@@ -453,7 +453,14 @@ export function ConnectionImportPanel({
                               {person.public_id || "-"}
                             </TableCell>
                             <TableCell className="px-3">
-                              <StatusBadge status={person.status} />
+                              <div className="flex max-w-sm flex-col items-start gap-1.5">
+                                <StatusBadge status={person.status} />
+                                {person.status === "failed" && person.error ? (
+                                  <span className="whitespace-normal text-xs leading-4 text-destructive">
+                                    {person.error}
+                                  </span>
+                                ) : null}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -560,7 +567,14 @@ export function ConnectionImportPanel({
                         <TableRow key={`${importId}:${person.row_number}`}>
                           <TableCell className="px-3">{person.name}</TableCell>
                           <TableCell className="px-3">
-                            <StatusBadge status={person.status} />
+                            <div className="flex max-w-sm flex-col items-start gap-1.5">
+                              <StatusBadge status={person.status} />
+                              {person.status === "failed" && person.error ? (
+                                <span className="whitespace-normal text-xs leading-4 text-destructive">
+                                  {person.error}
+                                </span>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
                             {formatDate(person.sent_at)}
