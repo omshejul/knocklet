@@ -40,10 +40,8 @@ pnpm build:desktop
 
 artifacts=(
   "$dmg_path"
-  "${dmg_path}.blockmap"
   "$zip_path"
   "${zip_path}.blockmap"
-  "$latest_path"
 )
 for artifact in "${artifacts[@]}"; do
   if [[ ! -f "$artifact" ]]; then
@@ -74,6 +72,12 @@ xcrun stapler validate "$dmg_path"
 spctl --assess --type execute --verbose=4 "$app_path"
 shasum -a 256 "$dmg_path"
 shasum -a 256 "$zip_path"
+
+node apps/desktop/scripts/write-update-metadata.cjs \
+  "$zip_path" \
+  "$latest_path" \
+  "$version"
+artifacts+=("$latest_path")
 
 gh release create "$tag" "${artifacts[@]}" \
   --target "$(git rev-parse HEAD)" \
