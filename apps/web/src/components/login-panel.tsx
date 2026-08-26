@@ -20,16 +20,21 @@ type LoginStatus = {
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
-async function fetchStatus(): Promise<ViewStatus> {
+type ViewSnapshot = {
+  status: ViewStatus;
+  message: string;
+};
+
+async function fetchStatus(): Promise<ViewSnapshot> {
   try {
     const response = await fetch(apiUrl + "/auth/status", { cache: "no-store" });
     if (!response.ok) {
-      return "unavailable";
+      return { status: "unavailable", message: "API unavailable." };
     }
     const data = (await response.json()) as LoginStatus;
-    return data.status;
+    return { status: data.status, message: data.message };
   } catch {
-    return "unavailable";
+    return { status: "unavailable", message: "API unavailable." };
   }
 }
 
@@ -64,13 +69,15 @@ const viewCopy: Record<ViewStatus, string> = {
 export function LoginPanel() {
   const reducedMotion = useReducedMotion();
   const [status, setStatus] = useState<ViewStatus>("loading");
+  const [message, setMessage] = useState(viewCopy.loading);
   const [isStarting, setIsStarting] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void fetchStatus().then((nextStatus) => {
+    void fetchStatus().then((snapshot) => {
       if (active) {
-        setStatus(nextStatus);
+        setStatus(snapshot.status);
+        setMessage(snapshot.message);
       }
     });
     return () => {
@@ -84,9 +91,10 @@ export function LoginPanel() {
     }
     let active = true;
     const interval = window.setInterval(() => {
-      void fetchStatus().then((nextStatus) => {
+      void fetchStatus().then((snapshot) => {
         if (active) {
-          setStatus(nextStatus);
+          setStatus(snapshot.status);
+          setMessage(snapshot.message);
         }
       });
     }, 1000);
@@ -105,8 +113,10 @@ export function LoginPanel() {
       }
       const data = (await response.json()) as LoginStatus;
       setStatus(data.status);
+      setMessage(data.message);
     } catch {
       setStatus("unavailable");
+      setMessage(viewCopy.unavailable);
     } finally {
       setIsStarting(false);
     }
@@ -135,7 +145,7 @@ export function LoginPanel() {
                   {...appear(reducedMotion)}
                   className="text-sm text-muted-foreground"
                 >
-                  {viewCopy[status]}
+                  {message}
                 </motion.div>
               </AnimatePresence>
             </div>

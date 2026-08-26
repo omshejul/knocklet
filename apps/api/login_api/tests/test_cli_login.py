@@ -22,6 +22,13 @@ class CompletedProcess:
         return "Login successful!", None
 
 
+class FailedProcess:
+    returncode = 1
+
+    def communicate(self, timeout=None):
+        return "Exception: Failed to connect to browser", None
+
+
 class LoginManagerTests(SimpleTestCase):
     def test_reports_existing_session(self):
         with TemporaryDirectory() as directory:
@@ -68,3 +75,41 @@ class LoginManagerTests(SimpleTestCase):
                 manager.wait_for_completion()
 
             assert captured_command == [sys.executable, "login"]
+
+    def test_retries_a_transient_chrome_start_failure(self):
+        with TemporaryDirectory() as directory:
+            cookies_file = Path(directory) / "cookies.json"
+            attempts = 0
+
+            def start_process(*args, **kwargs):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    return FailedProcess()
+                return CompletedProcess(cookies_file)
+
+            manager = LoginManager(
+                cookies_file=cookies_file,
+                popen_factory=start_process,
+            )
+
+            manager.start()
+            snapshot = manager.wait_for_completion()
+
+            assert attempts == 2
+            assert snapshot.status == LoginState.AUTHENTICATED
+
+    def test_reports_the_chrome_start_failure(self):
+        with TemporaryDirectory() as directory:
+            manager = LoginManager(
+                cookies_file=Path(directory) / "cookies.json",
+                popen_factory=lambda *args, **kwargs: FailedProcess(),
+            )
+
+            manager.start()
+            snapshot = manager.wait_for_completion()
+
+            assert snapshot.status == LoginState.FAILED
+            assert snapshot.message == (
+                "Chrome failed to start its login session. Quit Chrome and try again."
+            )

@@ -78,7 +78,9 @@ class LoginManager:
             for cookie in cookies
         )
 
-    def _make_snapshot(self, state: LoginState) -> LoginSnapshot:
+    def _make_snapshot(
+        self, state: LoginState, message: str | None = None
+    ) -> LoginSnapshot:
         messages = {
             LoginState.IDLE: "No LinkedIn session found on this Mac.",
             LoginState.WAITING: "Chrome is open. Finish signing in to LinkedIn.",
@@ -87,10 +89,24 @@ class LoginManager:
         }
         return LoginSnapshot(
             status=state,
-            message=messages[state],
+            message=message or messages[state],
             started_at=self._started_at,
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
+
+    def _failure_message(self, output: str) -> str:
+        if "Failed to connect to browser" in output:
+            return "Chrome failed to start its login session. Quit Chrome and try again."
+        if "could not find a valid chrome browser binary" in output:
+            return "Google Chrome was not found on this Mac."
+
+        ignored_prefixes = ("Traceback", "File ", "[PYI-")
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        for line in reversed(lines):
+            if line == "Exception:" or line.startswith(ignored_prefixes):
+                continue
+            return line[:300]
+        return "Login failed. Try opening LinkedIn again."
 
     def status(self) -> LoginSnapshot:
         with self._lock:
@@ -115,34 +131,48 @@ class LoginManager:
         return self.status()
 
     def _run(self) -> None:
+        output = ""
         try:
             command = (
                 [sys.executable, "login"]
                 if getattr(sys, "frozen", False)
                 else [sys.executable, str(self.cli_entrypoint), "login"]
             )
-            process = self.popen_factory(
-                command,
-                cwd=None if getattr(sys, "frozen", False) else self.cli_entrypoint.parent,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            with self._lock:
-                self._process = process
-            process.communicate(timeout=330)
+            for attempt in range(2):
+                process = self.popen_factory(
+                    command,
+                    cwd=None
+                    if getattr(sys, "frozen", False)
+                    else self.cli_entrypoint.parent,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                with self._lock:
+                    self._process = process
+                output, _ = process.communicate(timeout=330)
+                if (
+                    attempt == 0
+                    and process.returncode != 0
+                    and "Failed to connect to browser" in output
+                ):
+                    continue
+                break
             state = (
                 LoginState.AUTHENTICATED
                 if process.returncode == 0 and self._has_saved_session()
                 else LoginState.FAILED
             )
+            message = None if state == LoginState.AUTHENTICATED else self._failure_message(output)
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate()
             state = LoginState.FAILED
-        except (OSError, ValueError):
+            message = "Login timed out after five minutes."
+        except (OSError, ValueError) as error:
             state = LoginState.FAILED
+            message = f"Login could not start: {error}"
 
         with self._lock:
             self._process = None
-            self._snapshot = self._make_snapshot(state)
+            self._snapshot = self._make_snapshot(state, message)
