@@ -409,11 +409,12 @@ class LoginApiTests(TestCase):
         assert work_item.status == WorkItem.Status.QUEUED
         assert work_item.completed_at is None
 
-    def test_confirms_an_uncertain_message_was_sent(self):
+    def test_resolves_an_interrupted_message_before_a_stale_invitation_review(self):
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
         invitation = Invitation.objects.create(
             person=person,
-            status=Invitation.Status.ACCEPTED,
+            status=Invitation.Status.NEEDS_REVIEW,
+            error="The app stopped while this action was running.",
         )
         message = Message.objects.create(
             invitation=invitation,
@@ -441,8 +442,11 @@ class LoginApiTests(TestCase):
 
         assert response.status_code == 200
         assert response.json() == {"kind": "message", "status": "sent"}
+        invitation.refresh_from_db()
         message.refresh_from_db()
         work_item.refresh_from_db()
+        assert invitation.status == Invitation.Status.ACCEPTED
+        assert invitation.error == ""
         assert message.status == Message.Status.SENT
         assert message.sent_at == started_at
         assert work_item.status == WorkItem.Status.SUCCEEDED

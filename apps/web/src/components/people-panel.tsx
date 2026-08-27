@@ -833,9 +833,7 @@ function hasReviewAction(person: Person) {
 }
 
 function reviewKind(person: Person): "invitation" | "message" {
-  return person.invitation_status === "needs_review"
-    ? "invitation"
-    : "message";
+  return person.message_status === "needs_review" ? "message" : "invitation";
 }
 
 function kindLabel(kind: "invitation" | "message") {

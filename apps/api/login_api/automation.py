@@ -157,13 +157,16 @@ def recover_interrupted_work() -> int:
         work_item.error = "The app stopped while this action was running. Verify LinkedIn before retrying."
         work_item.completed_at = timezone.now()
         work_item.save(update_fields=["status", "error", "completed_at"])
-        if work_item.invitation_id:
+        if (
+            work_item.kind == WorkItem.Kind.SEND_INVITATION
+            and work_item.invitation_id
+        ):
             _set_invitation_status(
                 work_item.invitation,
                 Invitation.Status.NEEDS_REVIEW,
                 error=work_item.error,
             )
-        if work_item.message_id:
+        if work_item.kind == WorkItem.Kind.SEND_MESSAGE and work_item.message_id:
             work_item.message.status = Message.Status.NEEDS_REVIEW
             work_item.message.error = work_item.error
             work_item.message.save(update_fields=["status", "error", "updated_at"])
@@ -503,6 +506,31 @@ def resolve_needs_review_for_person(person_id: str, outcome: str) -> dict:
     except Invitation.DoesNotExist:
         raise ValueError("This person has no action that needs review.") from None
 
+    try:
+        message = Message.objects.select_for_update().get(invitation=invitation)
+    except Message.DoesNotExist:
+        message = None
+    if message is not None and message.status == Message.Status.NEEDS_REVIEW:
+        if invitation.status == Invitation.Status.NEEDS_REVIEW:
+            _set_invitation_status(invitation, Invitation.Status.ACCEPTED)
+
+        if outcome == "not_sent":
+            _requeue_message(message, timezone.now())
+            return {"kind": "message", "status": Message.Status.QUEUED}
+
+        work_item = message.work_items.filter(
+            kind=WorkItem.Kind.SEND_MESSAGE
+        ).order_by("-created_at").first()
+        message.status = Message.Status.SENT
+        message.error = ""
+        message.sent_at = message.sent_at or (
+            work_item.started_at if work_item else None
+        ) or timezone.now()
+        message.save(update_fields=["status", "error", "sent_at", "updated_at"])
+        if work_item:
+            _succeed(work_item)
+        return {"kind": "message", "status": Message.Status.SENT}
+
     if invitation.status == Invitation.Status.NEEDS_REVIEW:
         if outcome == "not_sent":
             _requeue_invitation(invitation, timezone.now())
@@ -524,27 +552,7 @@ def resolve_needs_review_for_person(person_id: str, outcome: str) -> dict:
         transaction.on_commit(enqueue_acceptance_check)
         return {"kind": "invitation", "status": Invitation.Status.PENDING}
 
-    try:
-        message = Message.objects.select_for_update().get(invitation=invitation)
-    except Message.DoesNotExist:
-        message = None
-    if message is None or message.status != Message.Status.NEEDS_REVIEW:
-        raise ValueError("This person has no action that needs review.")
-
-    if outcome == "not_sent":
-        _requeue_message(message, timezone.now())
-        return {"kind": "message", "status": Message.Status.QUEUED}
-
-    work_item = message.work_items.order_by("-created_at").first()
-    message.status = Message.Status.SENT
-    message.error = ""
-    message.sent_at = message.sent_at or (
-        work_item.started_at if work_item else None
-    ) or timezone.now()
-    message.save(update_fields=["status", "error", "sent_at", "updated_at"])
-    if work_item:
-        _succeed(work_item)
-    return {"kind": "message", "status": Message.Status.SENT}
+    raise ValueError("This person has no action that needs review.")
 
 
 def _requeue_invitation(invitation: Invitation, queued_at) -> None:

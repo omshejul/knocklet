@@ -103,6 +103,30 @@ class AutomationTests(TransactionTestCase):
         invitation.refresh_from_db()
         assert invitation.status == "needs_review"
 
+    def test_interrupted_message_keeps_the_invitation_accepted(self):
+        invitation = Invitation.objects.create(
+            person_id=self._person_id(),
+            status=Invitation.Status.ACCEPTED,
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello Ada",
+            status=Message.Status.SENDING,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.RUNNING,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+        )
+
+        assert recover_interrupted_work() == 1
+        invitation.refresh_from_db()
+        message.refresh_from_db()
+        assert invitation.status == Invitation.Status.ACCEPTED
+        assert message.status == Message.Status.NEEDS_REVIEW
+
     def test_acceptance_queues_and_sends_the_approved_auto_send_snapshot(self):
         client = AcceptedMessagingClient()
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
