@@ -1,13 +1,41 @@
-from django.db.models import Max, OuterRef, Subquery
+from django.db.models import Case, F, Max, OuterRef, Subquery, When
 
-from .models import Invitation, Message, Person, WorkItem
+from .message_templates import render_template_body
+from .models import (
+    ConnectionImport,
+    Invitation,
+    Message,
+    MessageTemplate,
+    Person,
+    WorkItem,
+)
 
 
 def list_people(limit: int = 500) -> list[dict]:
+    automatic_message_template = (
+        ConnectionImport.objects.filter(
+            requests__invitation__person_id=OuterRef("pk"),
+            auto_message_enabled=True,
+            message_template__isnull=False,
+        )
+        .annotate(
+            resolved_body=Case(
+                When(message_template_body="", then=F("message_template__body")),
+                default=F("message_template_body"),
+            )
+        )
+        .order_by("-created_at")
+    )
     people = (
         Person.objects.select_related("invitation", "invitation__message")
         .annotate(
             last_imported_at=Max("import_rows__connection_import__created_at"),
+            automatic_message_template_body=Subquery(
+                automatic_message_template.values("resolved_body")[:1]
+            ),
+            active_message_template_body=Subquery(
+                MessageTemplate.objects.filter(is_active=True).values("body")[:1]
+            ),
             message_due_at=Subquery(
                 WorkItem.objects.filter(
                     kind=WorkItem.Kind.SEND_MESSAGE,
@@ -35,6 +63,15 @@ def _person_snapshot(person: Person) -> dict:
         except Message.DoesNotExist:
             message = None
 
+    message_body = message.body if message else None
+    if invitation is not None and message_body is None:
+        template_body = (
+            person.automatic_message_template_body
+            or person.active_message_template_body
+        )
+        if template_body:
+            message_body = render_template_body(template_body, person.name)
+
     activity_dates = [person.updated_at, person.last_imported_at]
     if invitation:
         activity_dates.extend(
@@ -61,7 +98,7 @@ def _person_snapshot(person: Person) -> dict:
         "checked_at": invitation.checked_at.isoformat() if invitation and invitation.checked_at else None,
         "message_status": message.status if message else "not_scheduled",
         "message_error": message.error or None if message else None,
-        "message_body": message.body if message else None,
+        "message_body": message_body,
         "message_due_at": (
             person.message_due_at.isoformat() if person.message_due_at else None
         ),

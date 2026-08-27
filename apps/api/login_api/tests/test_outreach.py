@@ -1,7 +1,15 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from login_api.models import Invitation, Message, Person, WorkItem
+from login_api.models import (
+    ConnectionImport,
+    ConnectionRequest,
+    Invitation,
+    Message,
+    MessageTemplate,
+    Person,
+    WorkItem,
+)
 from login_api.outreach import list_people
 
 
@@ -49,6 +57,49 @@ class PeopleTests(TestCase):
         assert result[0]["message_status"] == "not_scheduled"
         assert result[0]["message_body"] is None
         assert result[0]["message_due_at"] is None
+
+    def test_previews_the_active_template_for_a_manual_message(self):
+        MessageTemplate.objects.create(
+            body="Hi {first_name}. Thanks for connecting",
+            is_active=True,
+        )
+        person = Person.objects.create(name="CA Akhil Kumar", public_id="akhil")
+        Invitation.objects.create(person=person, status=Invitation.Status.ACCEPTED)
+
+        result = list_people()
+
+        assert result[0]["message_status"] == "not_scheduled"
+        assert result[0]["message_body"] == "Hi Akhil. Thanks for connecting"
+
+    def test_previews_the_template_captured_for_automatic_message(self):
+        template = MessageTemplate.objects.create(
+            body="Current message for {first_name}",
+            is_active=True,
+        )
+        connection_import = ConnectionImport.objects.create(
+            filename="people.csv",
+            message_template=template,
+            message_template_body="Captured message for {first_name}",
+            auto_message_enabled=True,
+        )
+        person = Person.objects.create(name="Grace Hopper", public_id="grace")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+        )
+        ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            row_number=2,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.SENT,
+            person=person,
+            invitation=invitation,
+        )
+
+        result = list_people()
+
+        assert result[0]["message_body"] == "Captured message for Grace"
 
     def test_message_details_do_not_add_a_query_per_person(self):
         for name in ["Ada", "Grace"]:

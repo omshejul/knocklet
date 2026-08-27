@@ -811,7 +811,9 @@ function State({
       ) : null}
       {body ? (
         <details className="max-w-xs text-xs text-muted-foreground">
-          <summary className="cursor-pointer">View message</summary>
+          <summary className="cursor-pointer">
+            {status === "sent" ? "View message" : "Preview message"}
+          </summary>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{body}</p>
         </details>
       ) : null}
