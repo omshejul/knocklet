@@ -47,6 +47,7 @@ type CopyFeedback = {
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 const pageSize = 50;
+const maxVisibleLogs = 1000;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
@@ -78,18 +79,22 @@ const fieldClassName =
   "h-8 rounded-lg border border-input bg-background px-2 text-sm font-normal text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 async function fetchLogs({
+  limit = pageSize,
   offset = 0,
   search = "",
   status = "",
   kind = "",
+  signal,
 }: {
+  limit?: number;
   offset?: number;
   search?: string;
   status?: string;
   kind?: string;
+  signal?: AbortSignal;
 } = {}): Promise<LogPage> {
   const params = new URLSearchParams({
-    limit: String(pageSize),
+    limit: String(limit),
     offset: String(offset),
   });
   if (search) params.set("search", search);
@@ -98,6 +103,7 @@ async function fetchLogs({
 
   const response = await fetch(`${apiUrl}/logs?${params}`, {
     cache: "no-store",
+    signal,
   });
   if (!response.ok) throw new Error("Logs could not be loaded.");
   return response.json();
@@ -119,9 +125,12 @@ export function LogsPanel() {
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [error, setError] = useState("");
   const logsRef = useRef<LogEntry[]>([]);
-  const hasMoreRef = useRef(false);
+  const visibleLimitRef = useRef(pageSize);
+  const filterGenerationRef = useRef(0);
   const expandedLogIdRef = useRef<string | null>(null);
   const isLoadingMoreRef = useRef(false);
+  const isPollingRef = useRef(false);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -140,63 +149,84 @@ export function LogsPanel() {
   }, []);
 
   useEffect(() => {
-    let active = true;
+    return () => loadMoreAbortRef.current?.abort();
+  }, []);
 
-    const loadFirstPage = async () => {
+  useEffect(() => {
+    let active = true;
+    const filterGeneration = filterGenerationRef.current;
+    const controller = new AbortController();
+    const isCurrentFilter = () =>
+      active && filterGeneration === filterGenerationRef.current;
+
+    const loadVisibleLogs = async () => {
       try {
         const page = await fetchLogs({
+          limit: visibleLimitRef.current,
           search: debouncedSearch,
           status: statusFilter,
           kind: actionFilter,
+          signal: controller.signal,
         });
-        if (!active) return;
+        if (!isCurrentFilter()) return;
         logsRef.current = page.items;
-        hasMoreRef.current = page.has_more;
         setLogs(page.items);
-        setHasMore(page.has_more);
+        setHasMore(
+          page.has_more && visibleLimitRef.current < maxVisibleLogs,
+        );
         setLastUpdatedAt(new Date());
         setError("");
       } catch (loadError) {
-        if (active) setError((loadError as Error).message);
+        if (isCurrentFilter() && !isAbortError(loadError)) {
+          setError((loadError as Error).message);
+        }
       } finally {
-        if (active) setIsLoading(false);
+        if (isCurrentFilter()) setIsLoading(false);
       }
     };
 
-    void loadFirstPage();
+    void loadVisibleLogs();
     const interval = window.setInterval(() => {
-      if (expandedLogIdRef.current || isLoadingMoreRef.current) return;
+      if (
+        !isCurrentFilter() ||
+        expandedLogIdRef.current ||
+        isLoadingMoreRef.current ||
+        isPollingRef.current
+      ) {
+        return;
+      }
+      isPollingRef.current = true;
       void fetchLogs({
+        limit: visibleLimitRef.current,
         search: debouncedSearch,
         status: statusFilter,
         kind: actionFilter,
+        signal: controller.signal,
       })
         .then((page) => {
-          if (!active) return;
-          const current = logsRef.current;
-          const currentIds = new Set(current.map((entry) => entry.id));
-          const hasUnseenLogs = page.items.some(
-            (entry) => !currentIds.has(entry.id),
+          if (!isCurrentFilter()) return;
+          logsRef.current = page.items;
+          setLogs(page.items);
+          setHasMore(
+            page.has_more && visibleLimitRef.current < maxVisibleLogs,
           );
-          const merged = mergeFreshLogs(page.items, current);
-          const nextHasMore =
-            current.length > pageSize
-              ? hasMoreRef.current || hasUnseenLogs
-              : page.has_more;
-          logsRef.current = merged;
-          hasMoreRef.current = nextHasMore;
-          setLogs(merged);
-          setHasMore(nextHasMore);
           setLastUpdatedAt(new Date());
           setError("");
         })
-        .catch((loadError: Error) => {
-          if (active) setError(loadError.message);
+        .catch((loadError: unknown) => {
+          if (isCurrentFilter() && !isAbortError(loadError)) {
+            setError((loadError as Error).message);
+          }
+        })
+        .finally(() => {
+          isPollingRef.current = false;
         });
     }, 3000);
 
     return () => {
       active = false;
+      controller.abort();
+      isPollingRef.current = false;
       window.clearInterval(interval);
     };
   }, [actionFilter, debouncedSearch, statusFilter]);
@@ -210,27 +240,46 @@ export function LogsPanel() {
   });
 
   async function loadMore() {
+    loadMoreAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadMoreAbortRef.current = controller;
+    const filterGeneration = filterGenerationRef.current;
+    const nextLimit = Math.min(
+      visibleLimitRef.current + pageSize,
+      maxVisibleLogs,
+    );
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     try {
       const page = await fetchLogs({
-        offset: logsRef.current.length,
+        limit: nextLimit,
         search: debouncedSearch,
         status: statusFilter,
         kind: actionFilter,
+        signal: controller.signal,
       });
-      const appended = appendUniqueLogs(logsRef.current, page.items);
-      logsRef.current = appended;
-      hasMoreRef.current = page.has_more;
-      setLogs(appended);
-      setHasMore(page.has_more);
+      if (
+        controller.signal.aborted ||
+        filterGeneration !== filterGenerationRef.current
+      ) {
+        return;
+      }
+      visibleLimitRef.current = nextLimit;
+      logsRef.current = page.items;
+      setLogs(page.items);
+      setHasMore(page.has_more && nextLimit < maxVisibleLogs);
       setLastUpdatedAt(new Date());
       setError("");
     } catch (loadError) {
-      setError((loadError as Error).message);
+      if (!isAbortError(loadError)) {
+        setError((loadError as Error).message);
+      }
     } finally {
-      isLoadingMoreRef.current = false;
-      setIsLoadingMore(false);
+      if (loadMoreAbortRef.current === controller) {
+        loadMoreAbortRef.current = null;
+        isLoadingMoreRef.current = false;
+        setIsLoadingMore(false);
+      }
     }
   }
 
@@ -249,13 +298,20 @@ export function LogsPanel() {
 
   function clearFilters() {
     setSearch("");
+    setDebouncedSearch("");
     setStatusFilter("");
     setActionFilter("");
     beginFilterChange();
   }
 
   function beginFilterChange() {
+    filterGenerationRef.current += 1;
+    visibleLimitRef.current = pageSize;
+    loadMoreAbortRef.current?.abort();
+    loadMoreAbortRef.current = null;
+    isLoadingMoreRef.current = false;
     setIsLoading(true);
+    setIsLoadingMore(false);
     setExpandedLogId(null);
     setCopyFeedback(null);
   }
@@ -522,15 +578,8 @@ function Detail({
   );
 }
 
-function mergeFreshLogs(fresh: LogEntry[], current: LogEntry[]) {
-  const currentIds = new Set(fresh.map((entry) => entry.id));
-  const merged = [...fresh, ...current.filter((entry) => !currentIds.has(entry.id))];
-  return merged.slice(0, Math.max(pageSize, current.length));
-}
-
-function appendUniqueLogs(current: LogEntry[], next: LogEntry[]) {
-  const currentIds = new Set(current.map((entry) => entry.id));
-  return [...current, ...next.filter((entry) => !currentIds.has(entry.id))];
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function logSummary(entry: LogEntry) {

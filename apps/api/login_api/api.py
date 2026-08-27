@@ -269,12 +269,12 @@ def logs(
     status: str = "",
     kind: str = "",
 ):
-    if offset < 0 or not 1 <= limit <= 100:
+    if offset < 0 or not 1 <= limit <= 1000:
         return Status(
             400,
             {
                 "detail": (
-                    "Log offset must be zero or greater and limit must be between 1 and 100."
+                    "Log offset must be zero or greater and limit must be between 1 and 1000."
                 )
             },
         )

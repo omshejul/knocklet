@@ -226,14 +226,18 @@ class LoginApiTests(TestCase):
         assert second_response.json()["next_offset"] is None
 
     def test_rejects_invalid_log_page(self):
-        response = self.client.get("/api/logs?limit=0&offset=-1")
+        responses = [
+            self.client.get("/api/logs?limit=0&offset=-1"),
+            self.client.get("/api/logs?limit=1001"),
+        ]
 
-        assert response.status_code == 400
-        assert response.json() == {
-            "detail": (
-                "Log offset must be zero or greater and limit must be between 1 and 100."
-            )
-        }
+        for response in responses:
+            assert response.status_code == 400
+            assert response.json() == {
+                "detail": (
+                    "Log offset must be zero or greater and limit must be between 1 and 1000."
+                )
+            }
 
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):
