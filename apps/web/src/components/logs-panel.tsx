@@ -118,13 +118,14 @@ export function LogsPanel() {
   const [actionFilter, setActionFilter] = useState("");
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [clock, setClock] = useState(() => new Date());
+  const [liveAnnouncement, setLiveAnnouncement] = useState("Loading activity logs.");
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [error, setError] = useState("");
-  const logsRef = useRef<LogEntry[]>([]);
   const debouncedSearchRef = useRef("");
   const visibleLimitRef = useRef(pageSize);
   const filterGenerationRef = useRef(0);
@@ -169,13 +170,16 @@ export function LogsPanel() {
           kind: actionFilter,
           signal: controller.signal,
         });
-        if (!isCurrentFilter()) return;
-        logsRef.current = page.items;
+        if (!isCurrentFilter() || expandedLogIdRef.current) return;
         setLogs(page.items);
         setHasMore(
           page.has_more && visibleLimitRef.current < maxVisibleLogs,
         );
+        setIsTruncated(
+          page.has_more && visibleLimitRef.current >= maxVisibleLogs,
+        );
         setLastUpdatedAt(new Date());
+        setLiveAnnouncement("Activity logs updated.");
         setError("");
       } catch (loadError) {
         if (isCurrentFilter() && !isAbortError(loadError)) {
@@ -197,21 +201,32 @@ export function LogsPanel() {
         return;
       }
       isPollingRef.current = true;
+      const requestedVisibleLimit = visibleLimitRef.current;
       void fetchLogs({
-        limit: visibleLimitRef.current,
+        limit: requestedVisibleLimit,
         search: debouncedSearch,
         status: statusFilter,
         kind: actionFilter,
         signal: controller.signal,
       })
         .then((page) => {
-          if (!isCurrentFilter() || expandedLogIdRef.current) return;
-          logsRef.current = page.items;
+          if (
+            !isCurrentFilter() ||
+            expandedLogIdRef.current ||
+            isLoadingMoreRef.current ||
+            visibleLimitRef.current !== requestedVisibleLimit
+          ) {
+            return;
+          }
           setLogs(page.items);
           setHasMore(
             page.has_more && visibleLimitRef.current < maxVisibleLogs,
           );
+          setIsTruncated(
+            page.has_more && visibleLimitRef.current >= maxVisibleLogs,
+          );
           setLastUpdatedAt(new Date());
+          setLiveAnnouncement("Activity logs updated.");
           setError("");
         })
         .catch((loadError: unknown) => {
@@ -261,15 +276,17 @@ export function LogsPanel() {
       });
       if (
         controller.signal.aborted ||
-        filterGeneration !== filterGenerationRef.current
+        filterGeneration !== filterGenerationRef.current ||
+        expandedLogIdRef.current
       ) {
         return;
       }
       visibleLimitRef.current = nextLimit;
-      logsRef.current = page.items;
       setLogs(page.items);
       setHasMore(page.has_more && nextLimit < maxVisibleLogs);
+      setIsTruncated(page.has_more && nextLimit >= maxVisibleLogs);
       setLastUpdatedAt(new Date());
+      setLiveAnnouncement("More activity logs loaded.");
       setError("");
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -317,22 +334,39 @@ export function LogsPanel() {
     isLoadingMoreRef.current = false;
     setIsLoading(true);
     setIsLoadingMore(false);
+    setIsTruncated(false);
     expandedLogIdRef.current = null;
     setExpandedLogId(null);
     setCopyFeedback(null);
+    setLiveAnnouncement("Loading activity logs.");
   }
 
   function toggleLogDetails(entryId: string, expanded: boolean) {
     const nextExpandedId = expanded ? null : entryId;
     expandedLogIdRef.current = nextExpandedId;
     setExpandedLogId(nextExpandedId);
+    setCopyFeedback(null);
+    setLiveAnnouncement(
+      nextExpandedId
+        ? "Live updates paused while log details are open."
+        : "Live updates resumed.",
+    );
   }
 
   return (
     <div className="mt-5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p aria-live="polite">{liveMessage}</p>
-        <p>{hasMore ? `${logs.length} loaded` : `${logs.length} logs`}</p>
+        <p>{liveMessage}</p>
+        <p className="sr-only" aria-live="polite">
+          {liveAnnouncement}
+        </p>
+        <p>
+          {hasMore
+            ? `${logs.length} loaded`
+            : isTruncated
+              ? `Latest ${maxVisibleLogs.toLocaleString()} logs. Use filters for older activity.`
+              : `${logs.length} logs`}
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2" aria-label="Filter activity logs">
