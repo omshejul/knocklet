@@ -122,7 +122,6 @@ export function LogsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
-  const [clock, setClock] = useState(() => new Date());
   const [liveAnnouncement, setLiveAnnouncement] = useState("Loading activity logs.");
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [error, setError] = useState("");
@@ -130,6 +129,8 @@ export function LogsPanel() {
   const visibleLimitRef = useRef(pageSize);
   const filterGenerationRef = useRef(0);
   const expandedLogIdRef = useRef<string | null>(null);
+  const copyRequestRef = useRef(0);
+  const isLoadingRef = useRef(true);
   const isLoadingMoreRef = useRef(false);
   const isPollingRef = useRef(false);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
@@ -144,11 +145,6 @@ export function LogsPanel() {
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [search]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setClock(new Date()), 1000);
-    return () => window.clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     return () => loadMoreAbortRef.current?.abort();
@@ -186,7 +182,10 @@ export function LogsPanel() {
           setError((loadError as Error).message);
         }
       } finally {
-        if (isCurrentFilter()) setIsLoading(false);
+        if (isCurrentFilter()) {
+          isLoadingRef.current = false;
+          setIsLoading(false);
+        }
       }
     };
 
@@ -194,6 +193,7 @@ export function LogsPanel() {
     const interval = window.setInterval(() => {
       if (
         !isCurrentFilter() ||
+        isLoadingRef.current ||
         expandedLogIdRef.current ||
         isLoadingMoreRef.current ||
         isPollingRef.current
@@ -248,13 +248,6 @@ export function LogsPanel() {
   }, [actionFilter, debouncedSearch, statusFilter]);
 
   const hasFilters = Boolean(search || statusFilter || actionFilter);
-  const liveMessage = liveUpdateLine({
-    expanded: Boolean(expandedLogId),
-    isLoading,
-    lastUpdatedAt,
-    now: clock,
-  });
-
   async function loadMore() {
     loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
@@ -302,15 +295,25 @@ export function LogsPanel() {
   }
 
   async function copyError(entry: LogEntry) {
+    const copyRequest = ++copyRequestRef.current;
+    const canApplyFeedback = () =>
+      copyRequest === copyRequestRef.current &&
+      expandedLogIdRef.current === entry.id;
     if (!entry.error) {
-      setCopyFeedback({ id: entry.id, state: "failed" });
+      if (canApplyFeedback()) {
+        setCopyFeedback({ id: entry.id, state: "failed" });
+      }
       return;
     }
     try {
       await navigator.clipboard.writeText(entry.error);
-      setCopyFeedback({ id: entry.id, state: "copied" });
+      if (canApplyFeedback()) {
+        setCopyFeedback({ id: entry.id, state: "copied" });
+      }
     } catch {
-      setCopyFeedback({ id: entry.id, state: "failed" });
+      if (canApplyFeedback()) {
+        setCopyFeedback({ id: entry.id, state: "failed" });
+      }
     }
   }
 
@@ -331,6 +334,8 @@ export function LogsPanel() {
     visibleLimitRef.current = pageSize;
     loadMoreAbortRef.current?.abort();
     loadMoreAbortRef.current = null;
+    copyRequestRef.current += 1;
+    isLoadingRef.current = true;
     isLoadingMoreRef.current = false;
     setIsLoading(true);
     setIsLoadingMore(false);
@@ -345,6 +350,7 @@ export function LogsPanel() {
 
   function toggleLogDetails(entryId: string, expanded: boolean) {
     const nextExpandedId = expanded ? null : entryId;
+    copyRequestRef.current += 1;
     expandedLogIdRef.current = nextExpandedId;
     setExpandedLogId(nextExpandedId);
     setCopyFeedback(null);
@@ -358,7 +364,11 @@ export function LogsPanel() {
   return (
     <div className="mt-5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p>{liveMessage}</p>
+        <LiveUpdateStatus
+          expanded={Boolean(expandedLogId)}
+          isLoading={isLoading}
+          lastUpdatedAt={lastUpdatedAt}
+        />
         <p className="sr-only" aria-live="polite">
           {liveAnnouncement}
         </p>
@@ -520,7 +530,7 @@ export function LogsPanel() {
         </Table>
 
         <AnimatePresence initial={false}>
-          {!isLoading && logs.length === 0 ? (
+          {!isLoading && !error && logs.length === 0 ? (
             <motion.p
               {...appear(reducedMotion)}
               className="py-8 text-center text-sm text-muted-foreground"
@@ -549,6 +559,35 @@ export function LogsPanel() {
         ) : null}
       </AnimatePresence>
     </div>
+  );
+}
+
+function LiveUpdateStatus({
+  expanded,
+  isLoading,
+  lastUpdatedAt,
+}: {
+  expanded: boolean;
+  isLoading: boolean;
+  lastUpdatedAt: Date | null;
+}) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (expanded || isLoading || !lastUpdatedAt) return;
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, [expanded, isLoading, lastUpdatedAt]);
+
+  return (
+    <p>
+      {liveUpdateLine({
+        expanded,
+        isLoading,
+        lastUpdatedAt,
+        now,
+      })}
+    </p>
   );
 }
 
