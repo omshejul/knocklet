@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card, CardContent } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
@@ -87,70 +86,66 @@ export function LogsPanel() {
   }, []);
 
   return (
-    <>
-      <Card className="mt-5 shadow-xl shadow-black/40">
-        <CardContent className="space-y-4 px-4 sm:px-5">
-          {error ? (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
+    <div className="mt-5 space-y-4">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-          <div
-            className="overflow-x-auto rounded-xl border"
-            aria-label="Activity logs"
-          >
-            <Table className="min-w-[720px]">
-              <TableHeader>
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="px-3 font-normal">Time</TableHead>
-                  <TableHead className="px-3 font-normal">Action</TableHead>
-                  <TableHead className="px-3 font-normal">Person</TableHead>
-                  <TableHead className="px-3 font-normal">Status</TableHead>
-                  <TableHead className="px-3 font-normal">Details</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {logs.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell className="px-3 text-xs text-muted-foreground tabular-nums">
-                      {formatDate(
-                        entry.activity_at ??
-                          entry.completed_at ??
-                          entry.started_at ??
-                          entry.created_at,
-                      )}
-                    </TableCell>
-                    <TableCell className="px-3">
-                      {actionLabel(entry.kind)}
-                    </TableCell>
-                    <TableCell className="px-3 text-muted-foreground">
-                      {entry.person_name ?? "All pending"}
-                    </TableCell>
-                    <TableCell className="px-3">
-                      <StatusPill status={entry.status} />
-                    </TableCell>
-                    <TableCell className="px-3 text-xs text-muted-foreground">
-                      <LogDetails entry={entry} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {!isLoading && logs.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No activity yet.
-              </p>
-            ) : null}
-            {isLoading ? (
-              <LoadingState className="justify-center py-8">
-                Loading logs...
-              </LoadingState>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
-    </>
+      <div
+        className="overflow-x-auto rounded-xl border"
+        aria-label="Activity logs"
+      >
+        <Table className="min-w-[720px]">
+          <TableHeader>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="px-3 font-normal">Time</TableHead>
+              <TableHead className="px-3 font-normal">Action</TableHead>
+              <TableHead className="px-3 font-normal">Person</TableHead>
+              <TableHead className="px-3 font-normal">Status</TableHead>
+              <TableHead className="px-3 font-normal">Details</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logs.map((entry) => (
+              <TableRow key={entry.id}>
+                <TableCell className="px-3 text-xs text-muted-foreground tabular-nums">
+                  {formatDate(
+                    entry.activity_at ??
+                      entry.completed_at ??
+                      entry.started_at ??
+                      entry.created_at,
+                  )}
+                </TableCell>
+                <TableCell className="px-3">
+                  {actionLabel(entry.kind)}
+                </TableCell>
+                <TableCell className="px-3 text-muted-foreground">
+                  {entry.person_name ?? "All pending"}
+                </TableCell>
+                <TableCell className="px-3">
+                  <StatusPill status={entry.status} />
+                </TableCell>
+                <TableCell className="px-3 text-xs text-muted-foreground">
+                  <LogDetails entry={entry} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {!isLoading && logs.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No activity yet.
+          </p>
+        ) : null}
+        {isLoading ? (
+          <LoadingState className="justify-center py-8">
+            Loading logs...
+          </LoadingState>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
