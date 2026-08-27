@@ -1,6 +1,6 @@
 from django.db.models import Case, F, Max, OuterRef, Subquery, When
 
-from .message_templates import render_template_body
+from .message_templates import infer_first_name, render_template_body
 from .models import (
     ConnectionImport,
     Invitation,
@@ -70,7 +70,11 @@ def _person_snapshot(person: Person) -> dict:
             or person.active_message_template_body
         )
         if template_body:
-            message_body = render_template_body(template_body, person.name)
+            message_body = render_template_body(
+                template_body,
+                person.name,
+                person.first_name,
+            )
 
     activity_dates = [person.updated_at, person.last_imported_at]
     if invitation:
@@ -84,6 +88,7 @@ def _person_snapshot(person: Person) -> dict:
     return {
         "id": str(person.id),
         "name": person.name,
+        "first_name": person.first_name or infer_first_name(person.name),
         "linkedin_url": person.linkedin_url,
         "public_id": person.public_id,
         "invitation_status": invitation.status if invitation else "not_started",

@@ -288,6 +288,108 @@ class LoginApiTests(TestCase):
         assert response.json()["state"] == "no_pending"
         enqueue.assert_called_once_with(force=True)
 
+    def test_people_include_the_inferred_first_name(self):
+        Person.objects.create(name="CA Akhil Kumar", public_id="akhil")
+
+        response = self.client.get("/api/people")
+
+        assert response.status_code == 200
+        assert response.json()[0]["first_name"] == "Akhil"
+
+    def test_updates_first_name_used_by_new_messages(self):
+        person = Person.objects.create(name="CA Akhil Kumar", public_id="akhil")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+        )
+        MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/people/{person.id}",
+            data={"first_name": " Akhilendra "},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": str(person.id),
+            "first_name": "Akhilendra",
+        }
+        person.refresh_from_db()
+        assert person.first_name == "Akhilendra"
+
+        queue_response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert queue_response.status_code == 202, queue_response.json()
+        assert Message.objects.get(invitation__person=person).body == (
+            "Hello Akhilendra"
+        )
+
+    def test_updates_first_name_in_queued_automatic_message(self):
+        person = Person.objects.create(
+            name="CA Akhil Kumar",
+            first_name="Akhil",
+            public_id="akhil",
+        )
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+        )
+        template = MessageTemplate.objects.create(
+            body="Current template: {first_name}",
+            is_active=True,
+        )
+        connection_import = ConnectionImport.objects.create(
+            filename="connections.csv",
+            message_template=template,
+            message_template_body="Captured template: {first_name}",
+            auto_message_enabled=True,
+        )
+        ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            row_number=1,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.ACCEPTED,
+            person=person,
+            invitation=invitation,
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            template=template,
+            body="Captured template: Akhil",
+            status=Message.Status.QUEUED,
+        )
+
+        response = self.client.patch(
+            f"/api/people/{person.id}",
+            data={"first_name": "Akhilendra"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        message.refresh_from_db()
+        assert message.body == "Captured template: Akhilendra"
+
+    def test_rejects_a_blank_first_name(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+
+        response = self.client.patch(
+            f"/api/people/{person.id}",
+            data={"first_name": "   "},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "First name is required."}
+
     def test_deletes_person_and_local_outreach_records(self):
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
         invitation = Invitation.objects.create(person=person)

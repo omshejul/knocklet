@@ -51,17 +51,26 @@ def validate_template_body(body: str) -> None:
         raise ValueError("Message fields must be selected from the field menu.")
 
 
-def render_template_body(body: str, full_name: str) -> str:
-    validate_template_body(body)
-    clean_name = full_name.strip()
-    name_parts = clean_name.split()
+def infer_first_name(full_name: str) -> str:
+    name_parts = full_name.strip().split()
     while (
         len(name_parts) > 1
         and name_parts[0].rstrip(".").casefold() in FIRST_NAME_PREFIXES
     ):
         name_parts.pop(0)
+    return name_parts[0] if name_parts else ""
+
+
+def render_template_body(
+    body: str,
+    full_name: str,
+    first_name: str = "",
+) -> str:
+    validate_template_body(body)
+    clean_name = full_name.strip()
+    resolved_first_name = first_name.strip() or infer_first_name(clean_name)
     values = {
-        "first_name": name_parts[0] if name_parts else "there",
+        "first_name": resolved_first_name or "there",
         "full_name": clean_name or "there",
     }
     return TEMPLATE_FIELD_PATTERN.sub(

@@ -1,6 +1,7 @@
 from typing import Literal
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
@@ -10,6 +11,7 @@ from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
     queue_messages_for_people,
+    rerender_queued_message_for_person,
     resolve_needs_review_for_person,
     retry_invitation_for_person,
     work_item_status,
@@ -137,6 +139,7 @@ class ConnectionApprovalIn(Schema):
 class OutreachPersonOut(Schema):
     id: str
     name: str
+    first_name: str
     linkedin_url: str
     public_id: str
     invitation_status: str
@@ -182,6 +185,15 @@ class PersonMessageIn(Schema):
 
 class PersonMessageOut(Schema):
     queued_count: int
+
+
+class PersonFirstNameIn(Schema):
+    first_name: str
+
+
+class PersonFirstNameOut(Schema):
+    id: str
+    first_name: str
 
 
 class ReviewResolutionIn(Schema):
@@ -271,6 +283,32 @@ def queue_person_messages(request, payload: PersonMessageIn):
     except ValueError as error:
         return Status(409, {"detail": str(error)})
     return Status(202, {"queued_count": queued_count})
+
+
+@api.patch(
+    "/people/{person_id}",
+    response={200: PersonFirstNameOut, 400: ErrorOut, 404: ErrorOut, 409: ErrorOut},
+)
+@transaction.atomic
+def update_person_first_name(request, person_id: str, payload: PersonFirstNameIn):
+    try:
+        person = Person.objects.get(pk=person_id)
+    except (Person.DoesNotExist, ValidationError, ValueError):
+        return Status(404, {"detail": "Person not found."})
+
+    first_name = payload.first_name.strip()
+    if not first_name:
+        return Status(400, {"detail": "First name is required."})
+    if len(first_name) > 255:
+        return Status(400, {"detail": "First name must be 255 characters or fewer."})
+
+    person.first_name = first_name
+    try:
+        rerender_queued_message_for_person(person)
+    except ValueError as error:
+        return Status(409, {"detail": str(error)})
+    person.save(update_fields=["first_name", "updated_at"])
+    return {"id": str(person.id), "first_name": person.first_name}
 
 
 @api.post(

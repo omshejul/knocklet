@@ -92,6 +92,7 @@ class ConnectionRequest(models.Model):
 class Person(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
+    first_name = models.CharField(max_length=255, blank=True)
     linkedin_url = models.URLField(max_length=500, blank=True)
     public_id = models.CharField(max_length=255)
     normalized_public_id = models.CharField(max_length=255, unique=True)
