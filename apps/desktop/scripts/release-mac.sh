@@ -70,7 +70,7 @@ ASC_UPLOAD_TIMEOUT=10m asc notarization submit \
   --timeout 1h \
   --output table
 
-ASC_UPLOAD_TIMEOUT=10m asc notarization submit \
+ASC_UPLOAD_TIMEOUT=30m asc notarization submit \
   --file "$zip_path" \
   --wait \
   --timeout 1h \
