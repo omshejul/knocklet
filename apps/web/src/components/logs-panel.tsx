@@ -125,6 +125,7 @@ export function LogsPanel() {
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [error, setError] = useState("");
   const logsRef = useRef<LogEntry[]>([]);
+  const debouncedSearchRef = useRef("");
   const visibleLimitRef = useRef(pageSize);
   const filterGenerationRef = useRef(0);
   const expandedLogIdRef = useRef<string | null>(null);
@@ -134,14 +135,14 @@ export function LogsPanel() {
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setDebouncedSearch(search.trim());
+      const nextSearch = search.trim();
+      if (nextSearch === debouncedSearchRef.current) return;
+      debouncedSearchRef.current = nextSearch;
+      beginFilterChange();
+      setDebouncedSearch(nextSearch);
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [search]);
-
-  useEffect(() => {
-    expandedLogIdRef.current = expandedLogId;
-  }, [expandedLogId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setClock(new Date()), 1000);
@@ -204,7 +205,7 @@ export function LogsPanel() {
         signal: controller.signal,
       })
         .then((page) => {
-          if (!isCurrentFilter()) return;
+          if (!isCurrentFilter() || expandedLogIdRef.current) return;
           logsRef.current = page.items;
           setLogs(page.items);
           setHasMore(
@@ -297,11 +298,15 @@ export function LogsPanel() {
   }
 
   function clearFilters() {
+    const shouldInvalidate = Boolean(
+      debouncedSearchRef.current || statusFilter || actionFilter,
+    );
     setSearch("");
+    debouncedSearchRef.current = "";
     setDebouncedSearch("");
     setStatusFilter("");
     setActionFilter("");
-    beginFilterChange();
+    if (shouldInvalidate) beginFilterChange();
   }
 
   function beginFilterChange() {
@@ -312,8 +317,15 @@ export function LogsPanel() {
     isLoadingMoreRef.current = false;
     setIsLoading(true);
     setIsLoadingMore(false);
+    expandedLogIdRef.current = null;
     setExpandedLogId(null);
     setCopyFeedback(null);
+  }
+
+  function toggleLogDetails(entryId: string, expanded: boolean) {
+    const nextExpandedId = expanded ? null : entryId;
+    expandedLogIdRef.current = nextExpandedId;
+    setExpandedLogId(nextExpandedId);
   }
 
   return (
@@ -336,7 +348,6 @@ export function LogsPanel() {
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
-              beginFilterChange();
             }}
             placeholder="Search people"
           />
@@ -419,11 +430,11 @@ export function LogsPanel() {
                     tabIndex={0}
                     aria-expanded={expanded}
                     aria-controls={detailsId}
-                    onClick={() => setExpandedLogId(expanded ? null : entry.id)}
+                    onClick={() => toggleLogDetails(entry.id, expanded)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      setExpandedLogId(expanded ? null : entry.id);
+                      toggleLogDetails(entry.id, expanded);
                     }}
                   >
                     <TableCell className="px-3 text-xs text-muted-foreground tabular-nums">
