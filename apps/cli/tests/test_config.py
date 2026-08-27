@@ -8,6 +8,7 @@ Run: pytest tests/test_config.py -v
 
 import json
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,42 @@ class TestConfigPersistence:
         assert get_setting("rate_limits.daily_limit") == 80  # default
 
 
+class TestRateLimitUsage:
+    def test_reads_todays_persisted_usage(self, isolated_config):
+        from commands.config import get_rate_limit_usage, set_daily_limit
+
+        set_daily_limit(120)
+        (isolated_config / "daily_calls.json").write_text(
+            json.dumps({"date": str(date.today()), "count": 37})
+        )
+
+        assert get_rate_limit_usage() == {
+            "date": str(date.today()),
+            "daily_calls": 37,
+            "daily_limit": 120,
+            "default_daily_limit": 80,
+            "remaining": 83,
+            "calls_per_minute": 15,
+        }
+
+    def test_ignores_a_previous_days_count(self, isolated_config):
+        from commands.config import get_rate_limit_usage
+
+        yesterday = date.today() - timedelta(days=1)
+        (isolated_config / "daily_calls.json").write_text(
+            json.dumps({"date": str(yesterday), "count": 80})
+        )
+
+        assert get_rate_limit_usage()["daily_calls"] == 0
+
+    @pytest.mark.parametrize("value", [0, -1, 1001, True])
+    def test_rejects_an_invalid_daily_limit(self, value):
+        from commands.config import set_daily_limit
+
+        with pytest.raises(ValueError, match="between 1 and 1000"):
+            set_daily_limit(value)
+
+
 # ──────────────────────────────────────────────
 # RateLimiter reads from config
 # ──────────────────────────────────────────────
@@ -160,6 +197,34 @@ class TestRateLimiterConfig:
         assert "date" in data
         assert "count" in data
         assert data["count"] == 1
+
+    def test_rate_limiter_applies_a_saved_limit_without_restart(self):
+        from commands.config import set_daily_limit
+        from linkedin_wrapper import _RateLimiter
+
+        set_daily_limit(1)
+        limiter = _RateLimiter()
+        limiter.acquire()
+        set_daily_limit(2)
+
+        limiter.acquire()
+        with pytest.raises(RuntimeError, match="2 calls"):
+            limiter.acquire()
+
+    def test_rate_limiter_resets_when_the_local_date_changes(self):
+        from linkedin_wrapper import _RateLimiter
+
+        limiter = _RateLimiter()
+        limiter._daily_date = str(date.today() - timedelta(days=1))
+        limiter._daily_count = limiter._daily_limit
+
+        limiter.acquire()
+
+        assert limiter._daily_count == 1
+        assert json.loads(limiter.DAILY_FILE.read_text()) == {
+            "date": str(date.today()),
+            "count": 1,
+        }
 
 
 # ──────────────────────────────────────────────
