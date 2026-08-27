@@ -6,6 +6,7 @@ from django.utils import timezone
 from login_api.automation import (
     ACCEPTANCE_INTERVAL,
     enqueue_acceptance_check,
+    queue_messages_for_people,
     recover_interrupted_work,
     run_due_work,
 )
@@ -272,6 +273,31 @@ class AutomationTests(TransactionTestCase):
         )
         assert work_item.status == WorkItem.Status.FAILED
         assert client.messages == []
+
+    def test_manually_queued_message_runs_through_the_worker(self):
+        client = AcceptedMessagingClient()
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            sent_at=timezone.now(),
+            accepted_at=timezone.now(),
+        )
+        MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+            auto_send_enabled=False,
+        )
+
+        assert queue_messages_for_people([str(person.id)]) == 1
+
+        run_due_work(lambda: client)
+
+        message = Message.objects.get(invitation__person=person)
+        assert message.status == Message.Status.SENT
+        assert client.messages == [
+            ("Hello Ada", ["urn:li:fsd_profile:ada"]),
+        ]
 
     def test_failed_acceptance_check_waits_before_retrying(self):
         person = Person.objects.create(name="Ada", public_id="ada")

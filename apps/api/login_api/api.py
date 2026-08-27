@@ -9,6 +9,7 @@ from .activity import list_logs
 from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
+    queue_messages_for_people,
     work_item_status,
     work_status,
 )
@@ -165,6 +166,14 @@ class MessageTemplateFieldOut(Schema):
     placeholder: str
 
 
+class PersonMessageIn(Schema):
+    person_ids: list[str]
+
+
+class PersonMessageOut(Schema):
+    queued_count: int
+
+
 api = NinjaAPI(title="Knocklet local API", version="0.1.0")
 login_manager = LoginManager()
 connection_imports = ConnectionImportStore()
@@ -229,6 +238,20 @@ def automation_work_item(request, work_item_id: str):
 @api.get("/people", response=list[OutreachPersonOut])
 def people(request):
     return list_people()
+
+
+@api.post(
+    "/people/messages",
+    response={202: PersonMessageOut, 404: ErrorOut, 409: ErrorOut},
+)
+def queue_person_messages(request, payload: PersonMessageIn):
+    try:
+        queued_count = queue_messages_for_people(payload.person_ids)
+    except (Person.DoesNotExist, ValidationError):
+        return Status(404, {"detail": "Person not found."})
+    except ValueError as error:
+        return Status(409, {"detail": str(error)})
+    return Status(202, {"queued_count": queued_count})
 
 
 @api.get("/logs", response=list[ActivityLogOut])

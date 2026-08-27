@@ -94,7 +94,7 @@ artifacts+=("$latest_path")
 gh release create "$tag" "${artifacts[@]}" \
   --target "$(git rev-parse HEAD)" \
   --title "Knocklet ${version}" \
-  --notes "Shows clear progress while an update downloads, installs, and restarts Knocklet." \
+  --notes "Adds clear loading states, subtle transitions, and manual send or retry actions for accepted connections." \
   --latest
 
 published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')

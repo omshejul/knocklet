@@ -1,10 +1,10 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingState } from "@/components/ui/loading-state";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
   Table,
@@ -51,7 +51,6 @@ async function fetchLogs(): Promise<LogEntry[]> {
 }
 
 export function LogsPanel() {
-  const reducedMotion = useReducedMotion();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -88,19 +87,7 @@ export function LogsPanel() {
   }, []);
 
   return (
-    <motion.div
-      initial={
-        reducedMotion
-          ? { opacity: 0 }
-          : { opacity: 0, y: 12, filter: "blur(12px)" }
-      }
-      animate={
-        reducedMotion
-          ? { opacity: 1 }
-          : { opacity: 1, y: 0, filter: "blur(0px)" }
-      }
-      transition={{ duration: reducedMotion ? 0.01 : 0.2, ease: "easeOut" }}
-    >
+    <>
       <Card className="mt-5 shadow-xl shadow-black/40">
         <CardContent className="space-y-4 px-4 sm:px-5">
           {error ? (
@@ -156,17 +143,14 @@ export function LogsPanel() {
               </p>
             ) : null}
             {isLoading ? (
-              <p
-                className="py-8 text-center text-sm text-muted-foreground"
-                role="status"
-              >
+              <LoadingState className="justify-center py-8">
                 Loading logs...
-              </p>
+              </LoadingState>
             ) : null}
           </div>
         </CardContent>
       </Card>
-    </motion.div>
+    </>
   );
 }
 

@@ -1,9 +1,11 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ExternalLink,
-  LoaderCircle,
+  MessageSquareText,
   MoreVertical,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +41,7 @@ import {
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRangeSelection } from "@/hooks/use-range-selection";
+import { appear } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type Person = {
@@ -119,6 +123,7 @@ async function fetchWorkItem(workItemId: string): Promise<WorkItemStatus> {
 }
 
 export function PeoplePanel() {
+  const reducedMotion = useReducedMotion();
   const [people, setPeople] = useState<Person[]>([]);
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -127,6 +132,11 @@ export function PeoplePanel() {
     new Set(),
   );
   const [deleteTargets, setDeleteTargets] = useState<Person[]>([]);
+  const [messageActionIds, setMessageActionIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isQueueingCheck, setIsQueueingCheck] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
@@ -148,6 +158,9 @@ export function PeoplePanel() {
       })
       .catch((loadError: Error) => {
         if (active) setError(loadError.message);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
       });
     const interval = window.setInterval(() => {
       void load()
@@ -187,6 +200,7 @@ export function PeoplePanel() {
     () => people.filter((person) => selectedPersonIds.has(person.id)),
     [people, selectedPersonIds],
   );
+  const selectedMessagePeople = selectedPeople.filter(canQueueMessage);
   const selectedVisibleCount = visiblePeople.filter((person) =>
     selectedPersonIds.has(person.id),
   ).length;
@@ -196,26 +210,36 @@ export function PeoplePanel() {
     selectedVisibleCount > 0 && selectedVisibleCount < visiblePeople.length;
 
   async function checkNow() {
+    setIsQueueingCheck(true);
     setConfirmation("");
     setError("");
-    const response = await fetch(apiUrl + "/connections/acceptance/refresh", {
-      method: "POST",
-    });
-    const data = (await response.json()) as {
-      work_item_id: string | null;
-      state: string;
-      detail?: string;
-    };
-    if (!response.ok) {
-      setError(data.detail ?? "Acceptance check could not be queued.");
-      return;
+    try {
+      const response = await fetch(apiUrl + "/connections/acceptance/refresh", {
+        method: "POST",
+      });
+      const data = (await response.json()) as {
+        work_item_id: string | null;
+        state: string;
+        detail?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Acceptance check could not be queued.");
+      }
+      if (!data.work_item_id) {
+        setConfirmation("No pending invitations to check.");
+        return;
+      }
+      setRequestedWorkId(data.work_item_id);
+      await load();
+    } catch (checkError) {
+      setError(
+        checkError instanceof Error
+          ? checkError.message
+          : "Acceptance check could not be queued.",
+      );
+    } finally {
+      setIsQueueingCheck(false);
     }
-    if (!data.work_item_id) {
-      setConfirmation("No pending invitations to check.");
-      return;
-    }
-    setRequestedWorkId(data.work_item_id);
-    await load();
   }
 
   async function deletePerson() {
@@ -279,6 +303,46 @@ export function PeoplePanel() {
     }
   }
 
+  async function queueMessages(targets: Person[]) {
+    if (targets.length === 0) {
+      setError("Select an accepted person who has no sent message.");
+      return;
+    }
+
+    setMessageActionIds(new Set(targets.map((person) => person.id)));
+    setConfirmation("");
+    setError("");
+    try {
+      const response = await fetch(apiUrl + "/people/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_ids: targets.map((person) => person.id),
+        }),
+      });
+      const data = (await response.json()) as {
+        queued_count?: number;
+        detail?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Messages could not be queued.");
+      }
+      await load();
+      const count = data.queued_count ?? targets.length;
+      setConfirmation(
+        `${count} ${count === 1 ? "message" : "messages"} queued.`,
+      );
+    } catch (messageError) {
+      setError(
+        messageError instanceof Error
+          ? messageError.message
+          : "Messages could not be queued.",
+      );
+    } finally {
+      setMessageActionIds(new Set());
+    }
+  }
+
   function toggleVisiblePeople(checked: boolean) {
     setSelectedPersonIds((current) => {
       const next = new Set(current);
@@ -294,7 +358,7 @@ export function PeoplePanel() {
     resetPersonRangeAnchor();
   }
 
-  const isChecking = requestedWorkId !== null;
+  const isChecking = isQueueingCheck || requestedWorkId !== null;
 
   return (
     <Card className="mt-5 shadow-xl shadow-black/40">
@@ -307,27 +371,33 @@ export function PeoplePanel() {
             type="button"
             variant="outline"
             onClick={checkNow}
-            disabled={isChecking || (worker?.pending_invitations ?? 0) === 0}
-            aria-busy={isChecking}
+            disabled={(worker?.pending_invitations ?? 0) === 0}
+            loading={isChecking}
             className="min-h-11"
           >
             Check now
-            {isChecking ? (
-              <LoaderCircle className="animate-spin" aria-hidden="true" />
-            ) : null}
           </Button>
         </div>
 
-        {confirmation ? (
-          <p className="text-sm text-success" role="status" aria-live="polite">
-            {confirmation}
-          </p>
-        ) : null}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+        <AnimatePresence mode="wait" initial={false}>
+          {confirmation ? (
+            <motion.p
+              key={confirmation}
+              {...appear(reducedMotion)}
+              className="text-sm text-success"
+              role="status"
+              aria-live="polite"
+            >
+              {confirmation}
+            </motion.p>
+          ) : error ? (
+            <motion.div key={error} {...appear(reducedMotion)}>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-1" aria-label="Filter people">
@@ -348,17 +418,38 @@ export function PeoplePanel() {
               </Button>
             ))}
           </div>
-          {selectedPeople.length > 0 ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => setDeleteTargets(selectedPeople)}
-            >
-              <Trash2 aria-hidden="true" />
-              Delete selected ({selectedPeople.length})
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {selectedMessagePeople.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void queueMessages(selectedMessagePeople)}
+                loading={selectedMessagePeople.some((person) =>
+                  messageActionIds.has(person.id),
+                )}
+              >
+                {selectedMessagePeople.length === 1 &&
+                selectedMessagePeople[0].message_status === "failed" ? (
+                  <RotateCcw aria-hidden="true" />
+                ) : (
+                  <MessageSquareText aria-hidden="true" />
+                )}
+                {bulkMessageLabel(selectedMessagePeople)}
+              </Button>
+            ) : null}
+            {selectedPeople.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={messageActionIds.size > 0}
+                onClick={() => setDeleteTargets(selectedPeople)}
+              >
+                <Trash2 aria-hidden="true" />
+                Delete selected ({selectedPeople.length})
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-xl border">
@@ -421,7 +512,11 @@ export function PeoplePanel() {
                     <State status={person.invitation_status} error={person.invitation_error} />
                   </TableCell>
                   <TableCell className="px-3">
-                    <State status={person.message_status} error={person.message_error} />
+                    <State
+                      status={person.message_status}
+                      error={person.message_error}
+                      loading={messageActionIds.has(person.id)}
+                    />
                   </TableCell>
                   <TableCell className="px-3 text-right text-xs text-muted-foreground tabular-nums">
                     {formatDate(person.last_activity_at)}
@@ -441,8 +536,24 @@ export function PeoplePanel() {
                         <MoreVertical aria-hidden="true" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
+                        {canQueueMessage(person) ? (
+                          <DropdownMenuItem
+                            disabled={messageActionIds.size > 0}
+                            onClick={() => void queueMessages([person])}
+                          >
+                            {person.message_status === "failed" ? (
+                              <RotateCcw aria-hidden="true" />
+                            ) : (
+                              <MessageSquareText aria-hidden="true" />
+                            )}
+                            {person.message_status === "failed"
+                              ? "Retry message"
+                              : "Send message"}
+                          </DropdownMenuItem>
+                        ) : null}
                         <DropdownMenuItem
                           variant="destructive"
+                          disabled={messageActionIds.size > 0}
                           onClick={() => setDeleteTargets([person])}
                         >
                           <Trash2 aria-hidden="true" />
@@ -455,7 +566,11 @@ export function PeoplePanel() {
               ))}
             </TableBody>
           </Table>
-          {visiblePeople.length === 0 ? (
+          {isLoading ? (
+            <LoadingState className="justify-center py-8">
+              Loading people...
+            </LoadingState>
+          ) : visiblePeople.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No people.
             </p>
@@ -487,16 +602,12 @@ export function PeoplePanel() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={isDeleting}
-              aria-busy={isDeleting}
+              loading={isDeleting}
               onClick={() => void deletePerson()}
             >
               {deleteTargets.length === 1
                 ? "Delete person"
                 : `Delete ${deleteTargets.length} people`}
-              {isDeleting ? (
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
-              ) : null}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -505,7 +616,18 @@ export function PeoplePanel() {
   );
 }
 
-function State({ status, error }: { status: string; error: string | null }) {
+function State({
+  status,
+  error,
+  loading = false,
+}: {
+  status: string;
+  error: string | null;
+  loading?: boolean;
+}) {
+  if (loading) {
+    return <LoadingState>Queueing message...</LoadingState>;
+  }
   return (
     <div className="flex flex-col items-start gap-1.5">
       <StatusPill status={status} />
@@ -517,6 +639,24 @@ function State({ status, error }: { status: string; error: string | null }) {
       ) : null}
     </div>
   );
+}
+
+function canQueueMessage(person: Person) {
+  return (
+    person.invitation_status === "accepted" &&
+    ["not_scheduled", "failed"].includes(person.message_status)
+  );
+}
+
+function bulkMessageLabel(people: Person[]) {
+  if (people.length === 1) {
+    return people[0].message_status === "failed"
+      ? "Retry message"
+      : "Send message";
+  }
+  return people.some((person) => person.message_status === "failed")
+    ? `Send or retry messages (${people.length})`
+    : `Send messages (${people.length})`;
 }
 
 function matchesFilter(person: Person, filter: Filter) {

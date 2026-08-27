@@ -240,6 +240,132 @@ class LoginApiTests(TestCase):
         assert not Message.objects.filter(pk=message.id).exists()
         assert not WorkItem.objects.filter(message_id=message.id).exists()
 
+    def test_queues_a_message_for_an_accepted_person_without_one(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
+        MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+        )
+
+        response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        assert response.json() == {"queued_count": 1}
+        message = Message.objects.get(invitation=invitation)
+        assert message.body == "Hello Ada"
+        assert message.status == Message.Status.QUEUED
+        assert WorkItem.objects.filter(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            message=message,
+            status=WorkItem.Status.QUEUED,
+        ).count() == 1
+
+    def test_retries_a_failed_message_without_creating_another(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello Ada",
+            status=Message.Status.FAILED,
+            error="LinkedIn returned status 429.",
+        )
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.FAILED,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+            error=message.error,
+            completed_at=timezone.now(),
+            dedupe_key=f"message:{message.id}",
+        )
+
+        response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        message.refresh_from_db()
+        work_item.refresh_from_db()
+        assert message.status == Message.Status.QUEUED
+        assert message.error == ""
+        assert work_item.status == WorkItem.Status.QUEUED
+        assert work_item.error == ""
+        assert work_item.completed_at is None
+        assert Message.objects.filter(invitation=invitation).count() == 1
+        assert WorkItem.objects.filter(message=message).count() == 1
+
+    def test_retry_rebuilds_a_message_with_an_unresolved_field(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
+        template = MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello {unknown_name}",
+            status=Message.Status.FAILED,
+            error="Message contains an unresolved field and was not sent.",
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.FAILED,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+            error=message.error,
+            completed_at=timezone.now(),
+            dedupe_key=f"message:{message.id}",
+        )
+
+        response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        message.refresh_from_db()
+        assert message.body == "Hello Ada"
+        assert message.template == template
+        assert message.status == Message.Status.QUEUED
+
+    def test_rejects_a_message_for_a_person_who_is_not_accepted(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        Invitation.objects.create(person=person, status=Invitation.Status.PENDING)
+        MessageTemplate.objects.create(body="Hello", is_active=True)
+
+        response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": "Messages can only be sent to accepted connections."
+        }
+
     def test_rejects_person_delete_while_their_action_is_running(self):
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
         invitation = Invitation.objects.create(person=person)

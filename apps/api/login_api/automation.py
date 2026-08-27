@@ -397,6 +397,118 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
     return message
 
 
+@transaction.atomic
+def queue_messages_for_people(person_ids: list[str]) -> int:
+    selected_ids = set(person_ids)
+    if not selected_ids:
+        raise ValueError("Select at least one person.")
+
+    people = list(
+        Person.objects.select_for_update()
+        .select_related("invitation", "invitation__message")
+        .filter(pk__in=selected_ids)
+    )
+    if len(people) != len(selected_ids):
+        raise Person.DoesNotExist
+
+    pending: list[tuple[Invitation, Message | None]] = []
+    for person in people:
+        try:
+            invitation = person.invitation
+        except Invitation.DoesNotExist:
+            raise ValueError(
+                "Messages can only be sent to accepted connections."
+            ) from None
+        if invitation.status != Invitation.Status.ACCEPTED:
+            raise ValueError("Messages can only be sent to accepted connections.")
+        try:
+            message = invitation.message
+        except Message.DoesNotExist:
+            message = None
+        if message is not None and message.status != Message.Status.FAILED:
+            raise ValueError("A selected person already has a message in progress or sent.")
+        pending.append((invitation, message))
+
+    invalid_message_ids = set()
+    for _, message in pending:
+        if message is None:
+            continue
+        try:
+            validate_rendered_message_body(message.body)
+        except ValueError:
+            invalid_message_ids.add(message.id)
+
+    template = None
+    if any(message is None for _, message in pending) or invalid_message_ids:
+        template = MessageTemplate.objects.select_for_update().filter(is_active=True).first()
+        if template is None:
+            raise ValueError("Save a message template before sending messages.")
+
+    queued_at = timezone.now()
+    for invitation, message in pending:
+        if message is None:
+            body = render_template_body(template.body, invitation.person.name)
+            message = Message.objects.create(
+                invitation=invitation,
+                template=template,
+                body=body,
+                status=Message.Status.QUEUED,
+                queued_at=queued_at,
+            )
+            WorkItem.objects.create(
+                kind=WorkItem.Kind.SEND_MESSAGE,
+                invitation=invitation,
+                message=message,
+                due_at=queued_at,
+                dedupe_key=f"message:{message.id}",
+            )
+            continue
+
+        update_fields = [
+            "status",
+            "error",
+            "provider_status",
+            "queued_at",
+            "updated_at",
+        ]
+        if message.id in invalid_message_ids:
+            message.template = template
+            message.body = render_template_body(template.body, invitation.person.name)
+            update_fields.extend(["template", "body"])
+        message.status = Message.Status.QUEUED
+        message.error = ""
+        message.provider_status = None
+        message.queued_at = queued_at
+        message.save(update_fields=update_fields)
+        work_item = message.work_items.order_by("-created_at").first()
+        if work_item is None:
+            WorkItem.objects.create(
+                kind=WorkItem.Kind.SEND_MESSAGE,
+                invitation=invitation,
+                message=message,
+                due_at=queued_at,
+                dedupe_key=f"message:{message.id}",
+            )
+            continue
+        work_item.status = WorkItem.Status.QUEUED
+        work_item.due_at = queued_at
+        work_item.error = ""
+        work_item.provider_status = None
+        work_item.started_at = None
+        work_item.completed_at = None
+        work_item.save(
+            update_fields=[
+                "status",
+                "due_at",
+                "error",
+                "provider_status",
+                "started_at",
+                "completed_at",
+            ]
+        )
+    return len(pending)
+
+
 def _send_message(work_item: WorkItem, client) -> None:
     message = Message.objects.select_related("invitation__person").get(pk=work_item.message_id)
     validate_rendered_message_body(message.body)

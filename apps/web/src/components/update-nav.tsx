@@ -1,10 +1,12 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Download, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { appear } from "@/lib/motion";
 
 type UpdateStatus =
   | "idle"
@@ -46,6 +48,7 @@ export function UpdateNav({
   collapsed?: boolean;
   className?: string;
 }) {
+  const reducedMotion = useReducedMotion();
   const [state, setState] = useState<UpdateState | null>(null);
   const [isActing, setIsActing] = useState(false);
 
@@ -154,16 +157,20 @@ export function UpdateNav({
         <span className={cn(collapsed && "sr-only")}>{action.label}</span>
       </Button>
       {!collapsed ? (
-        <p
-          className={cn(
-            "mt-1 px-2 text-xs text-muted-foreground",
-            state.error && "text-destructive",
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          {updateStatusLine(state)}
-        </p>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.p
+            key={`${state.status}:${state.error ?? ""}`}
+            {...appear(reducedMotion)}
+            className={cn(
+              "mt-1 px-2 text-xs text-muted-foreground",
+              state.error && "text-destructive",
+            )}
+            role="status"
+            aria-live="polite"
+          >
+            {updateStatusLine(state)}
+          </motion.p>
+        </AnimatePresence>
       ) : null}
     </div>
   );
