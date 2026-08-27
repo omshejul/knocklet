@@ -30,6 +30,16 @@ class ComposeDriver:
         return True
 
 
+class PostDriver:
+    def execute_script(self, script, url, payload):
+        assert url.endswith("/test-endpoint")
+        assert payload == {"test": True}
+        return {
+            "status": 400,
+            "body": {"message": "Invitation limit reached."},
+        }
+
+
 def test_send_message_uses_linkedin_compose_and_confirms_delivery():
     driver = ComposeDriver()
     client = object.__new__(LinkedinClient)
@@ -63,3 +73,16 @@ def test_send_message_to_conversation_uses_the_counted_post_helper():
 
     assert result == {"status": 201}
     assert calls[0][0] == "/messaging/conversations/conversation-id/events"
+
+
+def test_api_post_preserves_linkedin_error_details():
+    client = object.__new__(LinkedinClient)
+    client.driver = PostDriver()
+    client._limiter = FakeLimiter()
+
+    result = client._api_post("/test-endpoint", {"test": True})
+
+    assert result == {
+        "status": 400,
+        "body": {"message": "Invitation limit reached."},
+    }

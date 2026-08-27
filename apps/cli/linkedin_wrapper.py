@@ -235,7 +235,12 @@ class LinkedinClient:
             credentials: 'include',
             body: JSON.stringify(arguments[1]),
         });
-        return {status: resp.status};
+        let body = null;
+        const text = await resp.text();
+        if (text) {
+            try { body = JSON.parse(text); } catch (_) {}
+        }
+        return {status: resp.status, body};
         """
         return self.driver.execute_script(
             f"return (async () => {{ {script} }})()", url, payload
@@ -697,6 +702,14 @@ class LinkedinClient:
                 secondary = entity.get("secondarySubtitle", {}).get("text", "") if entity.get("secondarySubtitle") else ""
                 nav_url = entity.get("navigationUrl", "")
                 urn = entity.get("entityUrn", "")
+                profile_urn_start = urn.find("urn:li:fsd_profile:")
+                if profile_urn_start >= 0:
+                    profile_urn_end = urn.find(",", profile_urn_start)
+                    if profile_urn_end < 0:
+                        profile_urn_end = urn.find(")", profile_urn_start)
+                    if profile_urn_end < 0:
+                        profile_urn_end = len(urn)
+                    urn = urn[profile_urn_start:profile_urn_end]
                 public_id = nav_url.split("/in/")[-1].split("?")[0].rstrip("/") if "/in/" in nav_url else ""
                 badge_obj = entity.get("badgeText") or {}
                 badge = badge_obj.get("text", "") if isinstance(badge_obj, dict) else ""
@@ -800,14 +813,25 @@ class LinkedinClient:
 
         while start < max_results:
             count = min(page_size, max_results - start)
-            data = self._api_get(
-                "/relationships/dash/connections"
-                f"?count={count}"
-                "&decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16"
-                "&q=search"
-                f"&start={start}"
-                "&sortType=RECENTLY_ADDED"
-            )
+            try:
+                data = self._api_get(
+                    "/relationships/dash/connections"
+                    f"?count={count}"
+                    "&decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16"
+                    "&q=search"
+                    f"&start={start}"
+                    "&sortType=RECENTLY_ADDED",
+                    raise_for_status=True,
+                )
+            except LinkedinAPIError as error:
+                if error.status not in {404, 410}:
+                    raise
+                data = self._api_get(
+                    "/relationships/connections"
+                    f"?start={start}&count={count}"
+                    "&sortType=RECENTLY_ADDED",
+                    raise_for_status=True,
+                )
             root = data.get("data", data)
             included = data.get("included", [])
             index = {
@@ -835,8 +859,11 @@ class LinkedinClient:
                         else min(oldest_created_at, created_at)
                     )
 
-                profile = connection.get("connectedMemberResolutionResult") or index.get(
-                    connection.get("*connectedMemberResolutionResult"), {}
+                profile = (
+                    connection.get("connectedMemberResolutionResult")
+                    or index.get(connection.get("*connectedMemberResolutionResult"), {})
+                    or connection.get("miniProfile")
+                    or {}
                 )
                 public_id = profile.get("publicIdentifier", "")
                 if public_id and public_id.casefold() not in seen_public_ids:
@@ -1334,22 +1361,13 @@ class LinkedinClient:
             data = self._api_get(
                 "/relationships/sentInvitationViewsV2"
                 f"?start={start}&count={count}"
-                "&invitationType=CONNECTION&q=invitationType"
+                "&invitationType=CONNECTION&q=invitationType",
+                raise_for_status=True,
             )
             root = data.get("data", data)
             elements = root.get("elements")
             if elements is None:
                 elements = root.get("*elements")
-            if elements is None and start == 0:
-                data = self._api_get(
-                    "/relationships/invitationViews"
-                    f"?start={start}&count={count}"
-                    "&includeInsights=true&q=sentInvitation"
-                )
-                root = data.get("data", data)
-                elements = root.get("elements")
-                if elements is None:
-                    elements = root.get("*elements")
             if elements is None:
                 raise RuntimeError("Pending invitations could not be checked.")
 
@@ -1456,19 +1474,21 @@ class LinkedinClient:
         }
 
     def add_connection(self, profile_public_id: str, message="", profile_urn=None):
-        import base64
-        import os
         urn = profile_urn or self.get_profile_urn(profile_public_id)
         if not urn:
             return {"status": 404}
-        tracking_id = base64.b64encode(os.urandom(16)).decode()
         payload = {
-            "inviteeProfileUrn": urn,
-            "trackingId": tracking_id,
+            "invitee": {
+                "inviteeUnion": {
+                    "memberProfile": urn,
+                }
+            },
         }
+        if message:
+            payload["customMessage"] = message
 
         result = self._api_post(
-            "/relationships/dash/memberRelationships?action=verifyQuotaAndCreate",
+            "/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2",
             payload,
         )
         cache = getattr(self, "_sent_invitation_cache", None)
