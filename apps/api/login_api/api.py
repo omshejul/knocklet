@@ -6,7 +6,11 @@ from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
 
-from commands.config import get_rate_limit_usage, set_daily_limit
+from commands.config import (
+    get_acceptance_check_settings,
+    get_rate_limit_usage,
+    set_daily_limit,
+)
 
 from .activity import list_logs
 from .automation import (
@@ -16,6 +20,7 @@ from .automation import (
     rerender_queued_message_for_person,
     resolve_needs_review_for_person,
     retry_invitation_for_person,
+    save_acceptance_check_settings,
     work_item_status,
     work_status,
 )
@@ -50,6 +55,19 @@ class RateLimitSettingsOut(Schema):
     default_daily_limit: int
     remaining: int
     calls_per_minute: int
+
+
+class AcceptanceCheckSettingsIn(Schema):
+    auto_check: bool
+    frequency_minutes: int
+
+
+class AcceptanceCheckSettingsOut(Schema):
+    auto_check: bool
+    frequency_minutes: int
+    default_frequency_minutes: int
+    minimum_frequency_minutes: int
+    maximum_frequency_minutes: int
 
 
 class LoginStatusOut(Schema):
@@ -249,6 +267,36 @@ def update_rate_limit_settings(request, payload: RateLimitSettingsIn):
     try:
         set_daily_limit(payload.daily_limit)
         return get_rate_limit_usage()
+    except ValueError as error:
+        return Status(400, {"detail": str(error)})
+    except (OSError, RuntimeError) as error:
+        return Status(500, {"detail": str(error)})
+
+
+@api.get(
+    "/settings/acceptance-checks",
+    response={200: AcceptanceCheckSettingsOut, 500: ErrorOut},
+)
+def acceptance_check_settings(request):
+    try:
+        return get_acceptance_check_settings()
+    except RuntimeError as error:
+        return Status(500, {"detail": str(error)})
+
+
+@api.put(
+    "/settings/acceptance-checks",
+    response={200: AcceptanceCheckSettingsOut, 400: ErrorOut, 500: ErrorOut},
+)
+def update_acceptance_check_settings(
+    request,
+    payload: AcceptanceCheckSettingsIn,
+):
+    try:
+        return save_acceptance_check_settings(
+            auto_check=payload.auto_check,
+            frequency_minutes=payload.frequency_minutes,
+        )
     except ValueError as error:
         return Status(400, {"detail": str(error)})
     except (OSError, RuntimeError) as error:

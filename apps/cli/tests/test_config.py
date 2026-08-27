@@ -135,6 +135,49 @@ class TestRateLimitUsage:
             set_daily_limit(value)
 
 
+class TestAcceptanceCheckSettings:
+    def test_returns_safe_defaults(self):
+        from commands.config import get_acceptance_check_settings
+
+        assert get_acceptance_check_settings() == {
+            "auto_check": True,
+            "frequency_minutes": 60,
+            "default_frequency_minutes": 60,
+            "minimum_frequency_minutes": 5,
+            "maximum_frequency_minutes": 1440,
+        }
+
+    def test_saves_auto_check_and_frequency_together(self):
+        from commands.config import (
+            get_acceptance_check_settings,
+            set_acceptance_check_settings,
+        )
+
+        set_acceptance_check_settings(auto_check=False, frequency_minutes=120)
+
+        assert get_acceptance_check_settings()["auto_check"] is False
+        assert get_acceptance_check_settings()["frequency_minutes"] == 120
+
+    @pytest.mark.parametrize("frequency", [0, 4, 1441, True])
+    def test_rejects_an_invalid_frequency(self, frequency):
+        from commands.config import set_acceptance_check_settings
+
+        with pytest.raises(ValueError, match="between 5 and 1440"):
+            set_acceptance_check_settings(
+                auto_check=True,
+                frequency_minutes=frequency,
+            )
+
+    def test_rejects_a_non_boolean_auto_check_value(self):
+        from commands.config import set_acceptance_check_settings
+
+        with pytest.raises(ValueError, match="true or false"):
+            set_acceptance_check_settings(
+                auto_check=1,
+                frequency_minutes=60,
+            )
+
+
 # ──────────────────────────────────────────────
 # RateLimiter reads from config
 # ──────────────────────────────────────────────

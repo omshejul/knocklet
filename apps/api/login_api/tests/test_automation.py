@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TransactionTestCase
 from django.utils import timezone
@@ -9,6 +10,7 @@ from login_api.automation import (
     queue_messages_for_people,
     recover_interrupted_work,
     run_due_work,
+    save_acceptance_check_settings,
 )
 from login_api.connection_imports import ConnectionImportStore
 from login_api.models import (
@@ -397,6 +399,89 @@ class AutomationTests(TransactionTestCase):
 
         assert next_check is not None
         assert next_check.due_at >= completed_at + ACCEPTANCE_INTERVAL
+
+    @patch("login_api.automation.get_acceptance_check_settings")
+    def test_disabled_auto_check_does_not_queue_work(self, settings):
+        settings.return_value = {
+            "auto_check": False,
+            "frequency_minutes": 60,
+        }
+        person = Person.objects.create(name="Ada", public_id="ada")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+
+        assert enqueue_acceptance_check() is None
+        assert not WorkItem.objects.filter(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES
+        ).exists()
+
+    @patch("login_api.automation.get_acceptance_check_settings")
+    def test_check_now_still_queues_work_when_auto_check_is_off(self, settings):
+        settings.return_value = {
+            "auto_check": False,
+            "frequency_minutes": 60,
+        }
+        person = Person.objects.create(name="Ada", public_id="ada")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now(),
+        )
+
+        work_item = enqueue_acceptance_check(force=True)
+
+        assert work_item is not None
+        assert work_item.due_at <= timezone.now()
+
+    @patch("login_api.automation.set_acceptance_check_settings")
+    def test_disabling_auto_check_cancels_a_future_check(self, set_settings):
+        set_settings.return_value = {
+            "auto_check": False,
+            "frequency_minutes": 60,
+            "default_frequency_minutes": 60,
+            "minimum_frequency_minutes": 5,
+            "maximum_frequency_minutes": 1440,
+        }
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now() + timedelta(hours=1),
+        )
+
+        save_acceptance_check_settings(
+            auto_check=False,
+            frequency_minutes=60,
+        )
+
+        work_item.refresh_from_db()
+        assert work_item.status == WorkItem.Status.CANCELLED
+        assert work_item.completed_at is not None
+
+    @patch("login_api.automation.set_acceptance_check_settings")
+    def test_frequency_change_reschedules_a_future_check(self, set_settings):
+        set_settings.return_value = {
+            "auto_check": True,
+            "frequency_minutes": 30,
+            "default_frequency_minutes": 60,
+            "minimum_frequency_minutes": 5,
+            "maximum_frequency_minutes": 1440,
+        }
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now() + timedelta(hours=6),
+        )
+        before = timezone.now()
+
+        save_acceptance_check_settings(
+            auto_check=True,
+            frequency_minutes=30,
+        )
+
+        work_item.refresh_from_db()
+        assert before + timedelta(minutes=29) <= work_item.due_at
+        assert work_item.due_at <= before + timedelta(minutes=31)
 
     def test_acceptance_check_uses_the_last_successful_check_as_its_cutoff(self):
         client = AcceptedMessagingClient()
