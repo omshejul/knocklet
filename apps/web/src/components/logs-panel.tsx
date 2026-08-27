@@ -334,6 +334,8 @@ export function LogsPanel() {
     isLoadingMoreRef.current = false;
     setIsLoading(true);
     setIsLoadingMore(false);
+    setLogs([]);
+    setHasMore(false);
     setIsTruncated(false);
     expandedLogIdRef.current = null;
     setExpandedLogId(null);
