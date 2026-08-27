@@ -17,7 +17,7 @@ class GoneDriver:
 
 def test_reads_pending_sent_invitation_public_ids():
     client = object.__new__(LinkedinClient)
-    client._api_get = lambda endpoint: {
+    client._api_get = lambda endpoint, **kwargs: {
         "data": {
             "elements": [
                 {
@@ -36,40 +36,28 @@ def test_reads_pending_sent_invitation_public_ids():
     assert client.get_sent_invitation_public_ids() == {"ada-lovelace"}
 
 
-def test_falls_back_to_the_legacy_sent_invitation_view():
+def test_does_not_retry_a_failed_sent_invitation_read_with_a_broken_endpoint():
     client = object.__new__(LinkedinClient)
     calls = []
 
-    def api_get(endpoint):
+    def api_get(endpoint, **kwargs):
         calls.append(endpoint)
-        if "sentInvitationViewsV2" in endpoint:
-            return {}
-        return {
-            "data": {
-                "elements": [
-                    {
-                        "invitation": {
-                            "toMember": {
-                                "publicIdentifier": "grace-hopper",
-                            }
-                        }
-                    }
-                ],
-                "paging": {"total": 1},
-            }
-        }
+        raise LinkedinAPIError(400)
 
     client._api_get = api_get
 
-    assert client.get_sent_invitation_public_ids() == {"grace-hopper"}
-    assert len(calls) == 2
+    with pytest.raises(LinkedinAPIError, match="HTTP 400 Bad Request"):
+        client.get_sent_invitation_public_ids()
+
+    assert len(calls) == 1
+    assert "sentInvitationViewsV2" in calls[0]
 
 
 def test_empty_current_sent_invitation_view_does_not_call_legacy_endpoint():
     client = object.__new__(LinkedinClient)
     calls = []
 
-    def api_get(endpoint):
+    def api_get(endpoint, **kwargs):
         calls.append(endpoint)
         return {"data": {"elements": [], "paging": {"total": 0}}}
 
@@ -83,7 +71,7 @@ def test_reuses_a_recent_sent_invitation_snapshot():
     client = object.__new__(LinkedinClient)
     calls = []
 
-    def api_get(endpoint):
+    def api_get(endpoint, **kwargs):
         calls.append(endpoint)
         return {"data": {"elements": [], "paging": {"total": 0}}}
 
@@ -210,6 +198,34 @@ def test_connection_state_returns_the_search_profile_urn():
     )
 
 
+def test_search_results_extract_the_profile_urn_from_the_result_wrapper():
+    client = object.__new__(LinkedinClient)
+    data = {
+        "elements": [
+            {
+                "items": [
+                    {
+                        "itemUnion": {
+                            "entityResult": {
+                                "title": {"text": "Ada Lovelace"},
+                                "navigationUrl": "https://www.linkedin.com/in/ada/",
+                                "entityUrn": (
+                                    "urn:li:fsd_entityResultViewModel:"
+                                    "(urn:li:fsd_profile:ada-id,SEARCH_SRP)"
+                                ),
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+    assert client._extract_search_results(data)[0]["urn_id"] == (
+        "urn:li:fsd_profile:ada-id"
+    )
+
+
 def test_get_profile_urn_uses_only_the_base_profile_request():
     client = object.__new__(LinkedinClient)
     calls = []
@@ -241,5 +257,34 @@ def test_add_connection_reuses_the_profile_urn_from_search():
     )
 
     assert result == {"status": 201}
-    assert calls[0][1]["inviteeProfileUrn"] == "urn:li:fsd_profile:ada-id"
+    assert calls == [
+        (
+            "/voyagerRelationshipsDashMemberRelationships"
+            "?action=verifyQuotaAndCreateV2",
+            {
+                "invitee": {
+                    "inviteeUnion": {
+                        "memberProfile": "urn:li:fsd_profile:ada-id",
+                    }
+                }
+            },
+        )
+    ]
     assert client.get_sent_invitation_public_ids() == {"ada"}
+
+
+def test_add_connection_includes_an_optional_note():
+    client = object.__new__(LinkedinClient)
+    calls = []
+    client._sent_invitation_cache = None
+    client._api_post = lambda endpoint, payload: calls.append(
+        (endpoint, payload)
+    ) or {"status": 201}
+
+    client.add_connection(
+        profile_public_id="ada",
+        profile_urn="urn:li:fsd_profile:ada-id",
+        message="This is a test, please ignore.",
+    )
+
+    assert calls[0][1]["customMessage"] == "This is a test, please ignore."

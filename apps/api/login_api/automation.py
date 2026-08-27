@@ -368,8 +368,21 @@ def _send_invitation(work_item: WorkItem, client) -> None:
 
     response_status = int((result or {}).get("status", 0))
     if not 200 <= response_status < 300:
-        error = RuntimeError(f"LinkedIn returned status {response_status or 'unknown'}.")
+        body = (result or {}).get("body") or {}
+        detail = body.get("message", "") if isinstance(body, dict) else ""
+        if response_status >= 500 and not detail:
+            detail = (
+                "LinkedIn could not confirm whether the invitation was created. "
+                "Check LinkedIn before retrying."
+            )
+        suffix = f" {detail}" if detail else ""
+        error = RuntimeError(
+            f"LinkedIn returned status {response_status or 'unknown'}.{suffix}"
+        )
         error.status = response_status or None
+        if response_status >= 500:
+            _needs_review(work_item, invitation, error)
+            return
         _fail_invitation(work_item, invitation, error)
         return
 

@@ -51,6 +51,19 @@ class UncertainClient(SafeClient):
         raise TimeoutError("LinkedIn did not confirm the invitation.")
 
 
+class RejectedClient(SafeClient):
+    def add_connection(self, profile_public_id, profile_urn=None):
+        return {
+            "status": 400,
+            "body": {"message": "Invitation limit reached."},
+        }
+
+
+class ServerErrorClient(SafeClient):
+    def add_connection(self, profile_public_id, profile_urn=None):
+        return {"status": 500, "body": {"status": 500}}
+
+
 class RenamedProfileClient(SafeClient):
     def get_connection_state(self, public_id, name=""):
         return {
@@ -138,6 +151,47 @@ class AutomationTests(TransactionTestCase):
         assert Invitation.objects.get().status == "needs_review"
         assert WorkItem.objects.get(kind="send_invitation").status == "needs_review"
         assert not WorkItem.objects.filter(status="queued", kind="send_invitation").exists()
+
+    def test_rejected_invitation_keeps_the_linkedin_error_detail(self):
+        store = ConnectionImportStore(client_factory=RejectedClient)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "people.csv",
+        )
+        store.approve(connection_import["id"])
+
+        run_due_work(RejectedClient)
+
+        invitation = Invitation.objects.get()
+        assert invitation.status == Invitation.Status.FAILED
+        assert invitation.provider_status == 400
+        assert invitation.error == (
+            "LinkedIn returned status 400. Invitation limit reached."
+        )
+
+    def test_server_error_requires_review_and_is_not_retried(self):
+        store = ConnectionImportStore(client_factory=ServerErrorClient)
+        connection_import = store.create(
+            b"Name,LinkedIn URL\nAda,https://linkedin.com/in/ada\n",
+            "people.csv",
+        )
+        store.approve(connection_import["id"])
+
+        run_due_work(ServerErrorClient)
+
+        invitation = Invitation.objects.get()
+        work_item = WorkItem.objects.get(kind=WorkItem.Kind.SEND_INVITATION)
+        assert invitation.status == Invitation.Status.NEEDS_REVIEW
+        assert invitation.provider_status == 500
+        assert invitation.error == (
+            "LinkedIn returned status 500. LinkedIn could not confirm whether the "
+            "invitation was created. Check LinkedIn before retrying."
+        )
+        assert work_item.status == WorkItem.Status.NEEDS_REVIEW
+        assert not WorkItem.objects.filter(
+            status=WorkItem.Status.QUEUED,
+            kind=WorkItem.Kind.SEND_INVITATION,
+        ).exists()
 
     def test_interrupted_write_requires_review_after_restart(self):
         invitation = Invitation.objects.create(

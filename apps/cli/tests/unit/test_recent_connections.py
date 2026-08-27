@@ -1,9 +1,9 @@
-from linkedin_wrapper import LinkedinClient
+from linkedin_wrapper import LinkedinAPIError, LinkedinClient
 
 
 def test_get_recent_connections_resolves_normalized_profiles():
     client = object.__new__(LinkedinClient)
-    client._api_get = lambda endpoint: {
+    client._api_get = lambda endpoint, **kwargs: {
         "data": {"*elements": ["urn:li:fsd_connection:(me,ada)"]},
         "included": [
             {
@@ -30,7 +30,7 @@ def test_get_recent_connections_resolves_normalized_profiles():
 
 def test_get_recent_connections_resolves_embedded_profiles():
     client = object.__new__(LinkedinClient)
-    client._api_get = lambda endpoint: {
+    client._api_get = lambda endpoint, **kwargs: {
         "data": {
             "elements": [
                 {
@@ -57,7 +57,7 @@ def test_get_recent_connections_stops_at_the_cutoff():
     client = object.__new__(LinkedinClient)
     calls = []
 
-    def api_get(endpoint):
+    def api_get(endpoint, **kwargs):
         calls.append(endpoint)
         references = [f"urn:li:fsd_connection:(me,{index})" for index in range(40)]
         included = []
@@ -82,3 +82,32 @@ def test_get_recent_connections_stops_at_the_cutoff():
     client.get_recent_connections(since_ms=1_980)
 
     assert len(calls) == 1
+
+
+def test_get_recent_connections_falls_back_when_the_dash_endpoint_is_gone():
+    client = object.__new__(LinkedinClient)
+    calls = []
+
+    def api_get(endpoint, **kwargs):
+        calls.append(endpoint)
+        if "/relationships/dash/connections" in endpoint:
+            raise LinkedinAPIError(410)
+        return {
+            "elements": [
+                {
+                    "createdAt": 1_725_000_000_000,
+                    "miniProfile": {"publicIdentifier": "ada-lovelace"},
+                }
+            ]
+        }
+
+    client._api_get = api_get
+
+    assert client.get_recent_connections(max_results=1) == [
+        {
+            "public_id": "ada-lovelace",
+            "connected_at": 1_725_000_000_000,
+        }
+    ]
+    assert "/relationships/dash/connections" in calls[0]
+    assert calls[1].endswith("&sortType=RECENTLY_ADDED")
