@@ -357,7 +357,7 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
         .first()
     )
     template = source_import.message_template if source_import else None
-    if template is None or not template.auto_send_enabled:
+    if template is None:
         return None
 
     template_body = source_import.message_template_body or template.body
@@ -464,49 +464,167 @@ def queue_messages_for_people(person_ids: list[str]) -> int:
             )
             continue
 
-        update_fields = [
+        if message.id in invalid_message_ids:
+            message.template = template
+            message.body = render_template_body(template.body, invitation.person.name)
+        _requeue_message(message, queued_at)
+    return len(pending)
+
+
+@transaction.atomic
+def retry_invitation_for_person(person_id: str) -> dict:
+    person = Person.objects.get(pk=person_id)
+    try:
+        invitation = (
+            Invitation.objects.select_for_update()
+            .select_related("person")
+            .get(person=person)
+        )
+    except Invitation.DoesNotExist:
+        raise ValueError("This person has no invitation to retry.") from None
+    if invitation.status != Invitation.Status.FAILED:
+        raise ValueError("Only failed invitations can be retried.")
+
+    _requeue_invitation(invitation, timezone.now())
+    return {"kind": "invitation", "status": Invitation.Status.QUEUED}
+
+
+@transaction.atomic
+def resolve_needs_review_for_person(person_id: str, outcome: str) -> dict:
+    if outcome not in {"sent", "not_sent"}:
+        raise ValueError("Review outcome must be sent or not sent.")
+    person = Person.objects.get(pk=person_id)
+    try:
+        invitation = (
+            Invitation.objects.select_for_update()
+            .select_related("person")
+            .get(person=person)
+        )
+    except Invitation.DoesNotExist:
+        raise ValueError("This person has no action that needs review.") from None
+
+    if invitation.status == Invitation.Status.NEEDS_REVIEW:
+        if outcome == "not_sent":
+            _requeue_invitation(invitation, timezone.now())
+            return {"kind": "invitation", "status": Invitation.Status.QUEUED}
+
+        work_item = invitation.work_items.filter(
+            kind=WorkItem.Kind.SEND_INVITATION
+        ).order_by("-created_at").first()
+        sent_at = invitation.sent_at or (
+            work_item.started_at if work_item else None
+        ) or timezone.now()
+        _set_invitation_status(
+            invitation,
+            Invitation.Status.PENDING,
+            sent_at=sent_at,
+        )
+        if work_item:
+            _succeed(work_item)
+        transaction.on_commit(enqueue_acceptance_check)
+        return {"kind": "invitation", "status": Invitation.Status.PENDING}
+
+    try:
+        message = Message.objects.select_for_update().get(invitation=invitation)
+    except Message.DoesNotExist:
+        message = None
+    if message is None or message.status != Message.Status.NEEDS_REVIEW:
+        raise ValueError("This person has no action that needs review.")
+
+    if outcome == "not_sent":
+        _requeue_message(message, timezone.now())
+        return {"kind": "message", "status": Message.Status.QUEUED}
+
+    work_item = message.work_items.order_by("-created_at").first()
+    message.status = Message.Status.SENT
+    message.error = ""
+    message.sent_at = message.sent_at or (
+        work_item.started_at if work_item else None
+    ) or timezone.now()
+    message.save(update_fields=["status", "error", "sent_at", "updated_at"])
+    if work_item:
+        _succeed(work_item)
+    return {"kind": "message", "status": Message.Status.SENT}
+
+
+def _requeue_invitation(invitation: Invitation, queued_at) -> None:
+    invitation.queued_at = queued_at
+    invitation.sent_at = None
+    invitation.accepted_at = None
+    _set_invitation_status(invitation, Invitation.Status.QUEUED)
+    work_item = invitation.work_items.filter(
+        kind=WorkItem.Kind.SEND_INVITATION
+    ).order_by("-created_at").first()
+    if work_item is None:
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            invitation=invitation,
+            due_at=queued_at,
+            dedupe_key=f"invitation:{invitation.id}:{queued_at.isoformat()}",
+        )
+        return
+    work_item.status = WorkItem.Status.QUEUED
+    work_item.due_at = queued_at
+    work_item.error = ""
+    work_item.provider_status = None
+    work_item.started_at = None
+    work_item.completed_at = None
+    work_item.save(
+        update_fields=[
+            "status",
+            "due_at",
+            "error",
+            "provider_status",
+            "started_at",
+            "completed_at",
+        ]
+    )
+
+
+def _requeue_message(message: Message, queued_at) -> None:
+    message.status = Message.Status.QUEUED
+    message.error = ""
+    message.provider_status = None
+    message.queued_at = queued_at
+    message.sent_at = None
+    message.save(
+        update_fields=[
+            "template",
+            "body",
             "status",
             "error",
             "provider_status",
             "queued_at",
+            "sent_at",
             "updated_at",
         ]
-        if message.id in invalid_message_ids:
-            message.template = template
-            message.body = render_template_body(template.body, invitation.person.name)
-            update_fields.extend(["template", "body"])
-        message.status = Message.Status.QUEUED
-        message.error = ""
-        message.provider_status = None
-        message.queued_at = queued_at
-        message.save(update_fields=update_fields)
-        work_item = message.work_items.order_by("-created_at").first()
-        if work_item is None:
-            WorkItem.objects.create(
-                kind=WorkItem.Kind.SEND_MESSAGE,
-                invitation=invitation,
-                message=message,
-                due_at=queued_at,
-                dedupe_key=f"message:{message.id}",
-            )
-            continue
-        work_item.status = WorkItem.Status.QUEUED
-        work_item.due_at = queued_at
-        work_item.error = ""
-        work_item.provider_status = None
-        work_item.started_at = None
-        work_item.completed_at = None
-        work_item.save(
-            update_fields=[
-                "status",
-                "due_at",
-                "error",
-                "provider_status",
-                "started_at",
-                "completed_at",
-            ]
+    )
+    work_item = message.work_items.order_by("-created_at").first()
+    if work_item is None:
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            invitation=message.invitation,
+            message=message,
+            due_at=queued_at,
+            dedupe_key=f"message:{message.id}",
         )
-    return len(pending)
+        return
+    work_item.status = WorkItem.Status.QUEUED
+    work_item.due_at = queued_at
+    work_item.error = ""
+    work_item.provider_status = None
+    work_item.started_at = None
+    work_item.completed_at = None
+    work_item.save(
+        update_fields=[
+            "status",
+            "due_at",
+            "error",
+            "provider_status",
+            "started_at",
+            "completed_at",
+        ]
+    )
 
 
 def _send_message(work_item: WorkItem, client) -> None:

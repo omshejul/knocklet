@@ -103,7 +103,7 @@ class AutomationTests(TransactionTestCase):
         invitation.refresh_from_db()
         assert invitation.status == "needs_review"
 
-    def test_acceptance_queues_and_sends_the_approved_template_snapshot(self):
+    def test_acceptance_queues_and_sends_the_approved_auto_send_snapshot(self):
         client = AcceptedMessagingClient()
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
         invitation = Invitation.objects.create(
@@ -138,6 +138,8 @@ class AutomationTests(TransactionTestCase):
             kind=WorkItem.Kind.CHECK_ACCEPTANCES,
             due_at=timezone.now(),
         )
+        template.auto_send_enabled = False
+        template.save(update_fields=["auto_send_enabled"])
 
         run_due_work(lambda: client)
 
