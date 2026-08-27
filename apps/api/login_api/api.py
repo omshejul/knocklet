@@ -137,6 +137,7 @@ class ConnectionApprovalIn(Schema):
 class OutreachPersonOut(Schema):
     id: str
     name: str
+    first_name: str
     linkedin_url: str
     public_id: str
     invitation_status: str
@@ -182,6 +183,15 @@ class PersonMessageIn(Schema):
 
 class PersonMessageOut(Schema):
     queued_count: int
+
+
+class PersonFirstNameIn(Schema):
+    first_name: str
+
+
+class PersonFirstNameOut(Schema):
+    id: str
+    first_name: str
 
 
 class ReviewResolutionIn(Schema):
@@ -271,6 +281,27 @@ def queue_person_messages(request, payload: PersonMessageIn):
     except ValueError as error:
         return Status(409, {"detail": str(error)})
     return Status(202, {"queued_count": queued_count})
+
+
+@api.patch(
+    "/people/{person_id}",
+    response={200: PersonFirstNameOut, 400: ErrorOut, 404: ErrorOut},
+)
+def update_person_first_name(request, person_id: str, payload: PersonFirstNameIn):
+    try:
+        person = Person.objects.get(pk=person_id)
+    except (Person.DoesNotExist, ValidationError, ValueError):
+        return Status(404, {"detail": "Person not found."})
+
+    first_name = payload.first_name.strip()
+    if not first_name:
+        return Status(400, {"detail": "First name is required."})
+    if len(first_name) > 255:
+        return Status(400, {"detail": "First name must be 255 characters or fewer."})
+
+    person.first_name = first_name
+    person.save(update_fields=["first_name", "updated_at"])
+    return {"id": str(person.id), "first_name": person.first_name}
 
 
 @api.post(

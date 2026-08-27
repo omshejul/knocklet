@@ -14,7 +14,11 @@ from .models import (
     Person,
     WorkItem,
 )
-from .message_templates import render_template_body, validate_rendered_message_body
+from .message_templates import (
+    infer_first_name,
+    render_template_body,
+    validate_rendered_message_body,
+)
 
 ClientFactory = Callable[[], object]
 ACCEPTANCE_INTERVAL = timedelta(minutes=30)
@@ -31,6 +35,12 @@ def queue_invitation(connection_request: ConnectionRequest) -> Invitation:
         normalized_public_id=connection_request.public_id.strip().casefold(),
         defaults={
             "name": connection_request.name,
+            "linkedin_url": connection_request.linkedin_url,
+            "public_id": connection_request.public_id,
+        },
+        create_defaults={
+            "name": connection_request.name,
+            "first_name": infer_first_name(connection_request.name),
             "linkedin_url": connection_request.linkedin_url,
             "public_id": connection_request.public_id,
         },
@@ -390,7 +400,11 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
 
     template_body = source_import.message_template_body or template.body
     try:
-        body = render_template_body(template_body, invitation.person.name)
+        body = render_template_body(
+            template_body,
+            invitation.person.name,
+            invitation.person.first_name,
+        )
     except ValueError as error:
         message, _ = Message.objects.get_or_create(
             invitation=invitation,
@@ -475,7 +489,11 @@ def queue_messages_for_people(person_ids: list[str]) -> int:
     queued_at = timezone.now()
     for invitation, message in pending:
         if message is None:
-            body = render_template_body(template.body, invitation.person.name)
+            body = render_template_body(
+                template.body,
+                invitation.person.name,
+                invitation.person.first_name,
+            )
             message = Message.objects.create(
                 invitation=invitation,
                 template=template,
@@ -494,7 +512,11 @@ def queue_messages_for_people(person_ids: list[str]) -> int:
 
         if message.id in invalid_message_ids:
             message.template = template
-            message.body = render_template_body(template.body, invitation.person.name)
+            message.body = render_template_body(
+                template.body,
+                invitation.person.name,
+                invitation.person.first_name,
+            )
         _requeue_message(message, queued_at)
     return len(pending)
 
