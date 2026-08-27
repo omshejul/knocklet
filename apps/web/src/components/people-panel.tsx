@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  CircleAlert,
   ExternalLink,
   MessageSquareText,
   MoreVertical,
@@ -57,6 +58,8 @@ type Person = {
   checked_at: string | null;
   message_status: string;
   message_error: string | null;
+  message_body: string | null;
+  message_due_at: string | null;
   message_sent_at: string | null;
   last_activity_at: string;
 };
@@ -132,6 +135,13 @@ export function PeoplePanel() {
     new Set(),
   );
   const [deleteTargets, setDeleteTargets] = useState<Person[]>([]);
+  const [reviewTarget, setReviewTarget] = useState<Person | null>(null);
+  const [reviewOutcome, setReviewOutcome] = useState<
+    "sent" | "not_sent" | null
+  >(null);
+  const [invitationActionIds, setInvitationActionIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [messageActionIds, setMessageActionIds] = useState<Set<string>>(
     new Set(),
   );
@@ -343,6 +353,71 @@ export function PeoplePanel() {
     }
   }
 
+  async function retryInvitation(person: Person) {
+    setInvitationActionIds(new Set([person.id]));
+    setConfirmation("");
+    setError("");
+    try {
+      const response = await fetch(
+        apiUrl + "/people/" + person.id + "/invitation/retry",
+        { method: "POST" },
+      );
+      const data = (await response.json()) as { detail?: string };
+      if (!response.ok) {
+        throw new Error(data.detail ?? "Connection request could not be retried.");
+      }
+      await load();
+      setConfirmation(`Connection request to ${person.name} queued.`);
+    } catch (retryError) {
+      setError(
+        retryError instanceof Error
+          ? retryError.message
+          : "Connection request could not be retried.",
+      );
+    } finally {
+      setInvitationActionIds(new Set());
+    }
+  }
+
+  async function resolveReview(outcome: "sent" | "not_sent") {
+    if (!reviewTarget) return;
+    const person = reviewTarget;
+    const kind = reviewKind(person);
+    setReviewOutcome(outcome);
+    setConfirmation("");
+    setError("");
+    try {
+      const response = await fetch(
+        apiUrl + "/people/" + person.id + "/review",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outcome }),
+        },
+      );
+      const data = (await response.json()) as { detail?: string };
+      if (!response.ok) {
+        throw new Error(data.detail ?? `${kindLabel(kind)} could not be updated.`);
+      }
+      await load();
+      setReviewTarget(null);
+      setConfirmation(
+        outcome === "sent"
+          ? `${person.name}'s ${kindLabel(kind)} marked as sent.`
+          : `${person.name}'s ${kindLabel(kind)} queued again.`,
+      );
+    } catch (reviewError) {
+      setReviewTarget(null);
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : `${kindLabel(kind)} could not be updated.`,
+      );
+    } finally {
+      setReviewOutcome(null);
+    }
+  }
+
   function toggleVisiblePeople(checked: boolean) {
     setSelectedPersonIds((current) => {
       const next = new Set(current);
@@ -442,7 +517,9 @@ export function PeoplePanel() {
                 type="button"
                 size="sm"
                 variant="destructive"
-                disabled={messageActionIds.size > 0}
+                disabled={
+                  messageActionIds.size > 0 || invitationActionIds.size > 0
+                }
                 onClick={() => setDeleteTargets(selectedPeople)}
               >
                 <Trash2 aria-hidden="true" />
@@ -509,12 +586,20 @@ export function PeoplePanel() {
                     </a>
                   </TableCell>
                   <TableCell className="px-3">
-                    <State status={person.invitation_status} error={person.invitation_error} />
+                    <State
+                      status={person.invitation_status}
+                      error={person.invitation_error}
+                      loading={invitationActionIds.has(person.id)}
+                      loadingLabel="Queueing request..."
+                    />
                   </TableCell>
                   <TableCell className="px-3">
                     <State
                       status={person.message_status}
                       error={person.message_error}
+                      body={person.message_body}
+                      dueAt={person.message_due_at}
+                      sentAt={person.message_sent_at}
                       loading={messageActionIds.has(person.id)}
                     />
                   </TableCell>
@@ -536,9 +621,36 @@ export function PeoplePanel() {
                         <MoreVertical aria-hidden="true" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
+                        {person.invitation_status === "failed" ? (
+                          <DropdownMenuItem
+                            disabled={
+                              messageActionIds.size > 0 ||
+                              invitationActionIds.size > 0
+                            }
+                            onClick={() => void retryInvitation(person)}
+                          >
+                            <RotateCcw aria-hidden="true" />
+                            Retry request
+                          </DropdownMenuItem>
+                        ) : null}
+                        {hasReviewAction(person) ? (
+                          <DropdownMenuItem
+                            disabled={
+                              messageActionIds.size > 0 ||
+                              invitationActionIds.size > 0
+                            }
+                            onClick={() => setReviewTarget(person)}
+                          >
+                            <CircleAlert aria-hidden="true" />
+                            Verify delivery
+                          </DropdownMenuItem>
+                        ) : null}
                         {canQueueMessage(person) ? (
                           <DropdownMenuItem
-                            disabled={messageActionIds.size > 0}
+                            disabled={
+                              messageActionIds.size > 0 ||
+                              invitationActionIds.size > 0
+                            }
                             onClick={() => void queueMessages([person])}
                           >
                             {person.message_status === "failed" ? (
@@ -553,7 +665,10 @@ export function PeoplePanel() {
                         ) : null}
                         <DropdownMenuItem
                           variant="destructive"
-                          disabled={messageActionIds.size > 0}
+                          disabled={
+                            messageActionIds.size > 0 ||
+                            invitationActionIds.size > 0
+                          }
                           onClick={() => setDeleteTargets([person])}
                         >
                           <Trash2 aria-hidden="true" />
@@ -612,6 +727,50 @@ export function PeoplePanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={reviewTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && reviewOutcome === null) setReviewTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {reviewTarget
+                ? `Verify ${kindLabel(reviewKind(reviewTarget))} for ${reviewTarget.name}`
+                : "Verify delivery"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              LinkedIn did not confirm whether this was sent. Check LinkedIn,
+              then choose the matching result. Retrying without checking can
+              create a duplicate.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reviewOutcome !== null}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              loading={reviewOutcome === "sent"}
+              disabled={reviewOutcome === "not_sent"}
+              onClick={() => void resolveReview("sent")}
+            >
+              It was sent
+            </Button>
+            <Button
+              type="button"
+              loading={reviewOutcome === "not_sent"}
+              disabled={reviewOutcome === "sent"}
+              onClick={() => void resolveReview("not_sent")}
+            >
+              It was not sent, retry
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -619,18 +778,43 @@ export function PeoplePanel() {
 function State({
   status,
   error,
+  body = null,
+  dueAt = null,
+  sentAt = null,
   loading = false,
+  loadingLabel = "Queueing message...",
 }: {
   status: string;
   error: string | null;
+  body?: string | null;
+  dueAt?: string | null;
+  sentAt?: string | null;
   loading?: boolean;
+  loadingLabel?: string;
 }) {
   if (loading) {
-    return <LoadingState>Queueing message...</LoadingState>;
+    return <LoadingState>{loadingLabel}</LoadingState>;
   }
+  const timing =
+    status === "queued" && dueAt
+      ? `Sends ${formatDate(dueAt)}`
+      : status === "sent" && sentAt
+        ? `Sent ${formatDate(sentAt)}`
+        : "";
   return (
     <div className="flex flex-col items-start gap-1.5">
       <StatusPill status={status} />
+      {timing ? (
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {timing}
+        </span>
+      ) : null}
+      {body ? (
+        <details className="max-w-xs text-xs text-muted-foreground">
+          <summary className="cursor-pointer">View message</summary>
+          <p className="mt-1 whitespace-pre-wrap text-foreground">{body}</p>
+        </details>
+      ) : null}
       {error ? (
         <details className="max-w-xs text-xs text-muted-foreground">
           <summary className="cursor-pointer">Details</summary>
@@ -639,6 +823,21 @@ function State({
       ) : null}
     </div>
   );
+}
+
+function hasReviewAction(person: Person) {
+  return (
+    person.invitation_status === "needs_review" ||
+    person.message_status === "needs_review"
+  );
+}
+
+function reviewKind(person: Person): "invitation" | "message" {
+  return person.message_status === "needs_review" ? "message" : "invitation";
+}
+
+function kindLabel(kind: "invitation" | "message") {
+  return kind === "invitation" ? "connection request" : "message";
 }
 
 function canQueueMessage(person: Person) {

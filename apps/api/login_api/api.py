@@ -10,6 +10,8 @@ from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
     queue_messages_for_people,
+    resolve_needs_review_for_person,
+    retry_invitation_for_person,
     work_item_status,
     work_status,
 )
@@ -145,6 +147,8 @@ class OutreachPersonOut(Schema):
     checked_at: str | None
     message_status: str
     message_error: str | None
+    message_body: str | None
+    message_due_at: str | None
     message_sent_at: str | None
     last_activity_at: str
 
@@ -178,6 +182,15 @@ class PersonMessageIn(Schema):
 
 class PersonMessageOut(Schema):
     queued_count: int
+
+
+class ReviewResolutionIn(Schema):
+    outcome: Literal["sent", "not_sent"]
+
+
+class PersonActionOut(Schema):
+    kind: str
+    status: str
 
 
 api = NinjaAPI(title="Knocklet local API", version="0.1.0")
@@ -258,6 +271,37 @@ def queue_person_messages(request, payload: PersonMessageIn):
     except ValueError as error:
         return Status(409, {"detail": str(error)})
     return Status(202, {"queued_count": queued_count})
+
+
+@api.post(
+    "/people/{person_id}/invitation/retry",
+    response={202: PersonActionOut, 404: ErrorOut, 409: ErrorOut},
+)
+def retry_person_invitation(request, person_id: str):
+    try:
+        return Status(202, retry_invitation_for_person(person_id))
+    except (Person.DoesNotExist, ValidationError):
+        return Status(404, {"detail": "Person not found."})
+    except ValueError as error:
+        return Status(409, {"detail": str(error)})
+
+
+@api.post(
+    "/people/{person_id}/review",
+    response={200: PersonActionOut, 202: PersonActionOut, 404: ErrorOut, 409: ErrorOut},
+)
+def resolve_person_review(
+    request,
+    person_id: str,
+    payload: ReviewResolutionIn,
+):
+    try:
+        result = resolve_needs_review_for_person(person_id, payload.outcome)
+    except (Person.DoesNotExist, ValidationError):
+        return Status(404, {"detail": "Person not found."})
+    except ValueError as error:
+        return Status(409, {"detail": str(error)})
+    return Status(200 if payload.outcome == "sent" else 202, result)
 
 
 @api.get("/logs", response={200: ActivityLogPageOut, 400: ErrorOut})
