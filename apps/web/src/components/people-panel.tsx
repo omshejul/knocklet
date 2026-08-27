@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EditableFirstName } from "@/components/editable-first-name";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +49,7 @@ import { cn } from "@/lib/utils";
 type Person = {
   id: string;
   name: string;
+  first_name: string;
   linkedin_url: string;
   public_id: string;
   invitation_status: string;
@@ -433,6 +435,18 @@ export function PeoplePanel() {
     resetPersonRangeAnchor();
   }
 
+  function handleFirstNameSaved(personId: string, firstName: string) {
+    setPeople((current) =>
+      current.map((person) =>
+        person.id === personId
+          ? { ...person, first_name: firstName }
+          : person,
+      ),
+    );
+    setError("");
+    setConfirmation("First name saved.");
+  }
+
   const isChecking = isQueueingCheck || requestedWorkId !== null;
 
   return (
@@ -543,6 +557,7 @@ export function PeoplePanel() {
                   />
                 </TableHead>
                 <TableHead className="px-3 font-normal">Name</TableHead>
+                <TableHead className="px-3 font-normal">First name</TableHead>
                 <TableHead className="px-3 font-normal">Invitation</TableHead>
                 <TableHead className="px-3 font-normal">Message</TableHead>
                 <TableHead className="px-3 text-right font-normal">
@@ -584,6 +599,20 @@ export function PeoplePanel() {
                       {person.name}
                       <ExternalLink className="size-3" aria-hidden="true" />
                     </a>
+                  </TableCell>
+                  <TableCell className="px-3">
+                    <EditableFirstName
+                      personId={person.id}
+                      personName={person.name}
+                      firstName={person.first_name}
+                      onEditing={() => {
+                        setConfirmation("");
+                        setError("");
+                      }}
+                      onSaved={(firstName) =>
+                        handleFirstNameSaved(person.id, firstName)
+                      }
+                    />
                   </TableCell>
                   <TableCell className="px-3">
                     <State
