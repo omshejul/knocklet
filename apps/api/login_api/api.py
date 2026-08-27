@@ -124,6 +124,12 @@ class ActivityLogOut(Schema):
     completed_at: str | None
 
 
+class ActivityLogPageOut(Schema):
+    items: list[ActivityLogOut]
+    has_more: bool
+    next_offset: int | None
+
+
 class ConnectionApprovalIn(Schema):
     row_numbers: list[int]
 
@@ -298,9 +304,31 @@ def resolve_person_review(
     return Status(200 if payload.outcome == "sent" else 202, result)
 
 
-@api.get("/logs", response=list[ActivityLogOut])
-def logs(request):
-    return list_logs()
+@api.get("/logs", response={200: ActivityLogPageOut, 400: ErrorOut})
+def logs(
+    request,
+    limit: int = 50,
+    offset: int = 0,
+    search: str = "",
+    status: str = "",
+    kind: str = "",
+):
+    if offset < 0 or not 1 <= limit <= 1000:
+        return Status(
+            400,
+            {
+                "detail": (
+                    "Log offset must be zero or greater and limit must be between 1 and 1000."
+                )
+            },
+        )
+    return list_logs(
+        limit=limit,
+        offset=offset,
+        search=search,
+        status=status,
+        kind=kind,
+    )
 
 
 @api.delete(

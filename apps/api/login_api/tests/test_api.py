@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -171,22 +172,80 @@ class LoginApiTests(TestCase):
         response = self.client.get("/api/logs")
 
         assert response.status_code == 200
-        assert response.json() == [
-            {
-                "id": str(work_item.id),
-                "kind": "send_invitation",
-                "status": "failed",
-                "person_name": "Ada Lovelace",
-                "error": "LinkedIn returned status 429.",
-                "provider_status": 429,
-                "attempt_count": 1,
-                "activity_at": work_item.completed_at.isoformat(),
-                "due_at": work_item.due_at.isoformat(),
-                "created_at": work_item.created_at.isoformat(),
-                "started_at": None,
-                "completed_at": work_item.completed_at.isoformat(),
-            }
+        assert response.json() == {
+            "items": [
+                {
+                    "id": str(work_item.id),
+                    "kind": "send_invitation",
+                    "status": "failed",
+                    "person_name": "Ada Lovelace",
+                    "error": "LinkedIn returned status 429.",
+                    "provider_status": 429,
+                    "attempt_count": 1,
+                    "activity_at": work_item.completed_at.isoformat(),
+                    "due_at": work_item.due_at.isoformat(),
+                    "created_at": work_item.created_at.isoformat(),
+                    "started_at": None,
+                    "completed_at": work_item.completed_at.isoformat(),
+                }
+            ],
+            "has_more": False,
+            "next_offset": None,
+        }
+
+    def test_paginates_and_filters_work_logs(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(person=person)
+        now = timezone.now()
+        for index in range(3):
+            WorkItem.objects.create(
+                kind=WorkItem.Kind.SEND_INVITATION,
+                status=WorkItem.Status.FAILED,
+                invitation=invitation,
+                due_at=now - timedelta(minutes=index),
+                error=f"Failure {index}",
+                completed_at=now - timedelta(minutes=index),
+            )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            status=WorkItem.Status.SUCCEEDED,
+            due_at=now,
+            completed_at=now,
+        )
+
+        first_response = self.client.get(
+            "/api/logs?limit=2&offset=0&status=failed&kind=send_invitation&search=Ada"
+        )
+        second_response = self.client.get(
+            "/api/logs?limit=2&offset=2&status=failed&kind=send_invitation&search=Ada"
+        )
+
+        assert first_response.status_code == 200
+        assert [item["error"] for item in first_response.json()["items"]] == [
+            "Failure 0",
+            "Failure 1",
         ]
+        assert first_response.json()["has_more"] is True
+        assert first_response.json()["next_offset"] == 2
+        assert [item["error"] for item in second_response.json()["items"]] == [
+            "Failure 2"
+        ]
+        assert second_response.json()["has_more"] is False
+        assert second_response.json()["next_offset"] is None
+
+    def test_rejects_invalid_log_page(self):
+        responses = [
+            self.client.get("/api/logs?limit=0&offset=-1"),
+            self.client.get("/api/logs?limit=1001"),
+        ]
+
+        for response in responses:
+            assert response.status_code == 400
+            assert response.json() == {
+                "detail": (
+                    "Log offset must be zero or greater and limit must be between 1 and 1000."
+                )
+            }
 
     @patch("login_api.api.connection_imports")
     def test_approves_only_selected_connection_rows(self, store):
