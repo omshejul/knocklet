@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Logs,
   Menu,
@@ -24,6 +25,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { appear } from "@/lib/motion";
 
 const sections = [
   { id: "send" as const, label: "Send requests", icon: Send },
@@ -35,6 +37,7 @@ const sections = [
 type DashboardSection = (typeof sections)[number]["id"];
 
 export function DashboardShell() {
+  const reducedMotion = useReducedMotion();
   const [section, setSection] = useState<DashboardSection>("send");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -169,24 +172,28 @@ export function DashboardShell() {
 
       <main className="min-w-0 px-4 py-6 sm:px-8 md:py-10">
         <div className="mx-auto w-full max-w-5xl">
-          {section !== "messages" ? (
-            <h1 className="text-2xl font-normal tracking-tight">
-              {section === "send"
-                ? "Send requests"
-                : section === "people"
-                  ? "People"
-                  : "Logs"}
-            </h1>
-          ) : null}
-          {section === "send" ? (
-            <ConnectionImportPanel section="send" />
-          ) : section === "people" ? (
-            <PeoplePanel />
-          ) : section === "messages" ? (
-            <MessagesPanel />
-          ) : (
-            <LogsPanel />
-          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div key={section} {...appear(reducedMotion)}>
+              {section !== "messages" ? (
+                <h1 className="text-2xl font-normal tracking-tight">
+                  {section === "send"
+                    ? "Send requests"
+                    : section === "people"
+                      ? "People"
+                      : "Logs"}
+                </h1>
+              ) : null}
+              {section === "send" ? (
+                <ConnectionImportPanel section="send" />
+              ) : section === "people" ? (
+                <PeoplePanel />
+              ) : section === "messages" ? (
+                <MessagesPanel />
+              ) : (
+                <LogsPanel />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>

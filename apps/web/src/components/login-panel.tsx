@@ -1,12 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { appear } from "@/lib/motion";
 
 type ApiStatus = "idle" | "waiting" | "authenticated" | "failed";
 type ViewStatus = ApiStatus | "loading" | "unavailable";
@@ -36,25 +36,6 @@ async function fetchStatus(): Promise<ViewSnapshot> {
   } catch {
     return { status: "unavailable", message: "API unavailable." };
   }
-}
-
-function appear(reduced: boolean | null, delay = 0) {
-  return {
-    initial: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 12, filter: "blur(12px)" },
-    animate: reduced
-      ? { opacity: 1 }
-      : { opacity: 1, y: 0, filter: "blur(0px)" },
-    exit: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 8, filter: "blur(10px)" },
-    transition: {
-      duration: reduced ? 0.01 : 0.2,
-      delay,
-      ease: "easeOut" as const,
-    },
-  };
 }
 
 const viewCopy: Record<ViewStatus, string> = {
@@ -130,7 +111,8 @@ export function LoginPanel() {
   }
 
   return (
-    <section
+    <motion.section
+      {...appear(reducedMotion)}
       aria-label="Knocklet login"
       className="grid min-h-screen place-items-center px-5 py-12"
     >
@@ -153,15 +135,11 @@ export function LoginPanel() {
             <Button
               type="button"
               size="lg"
-              disabled={isBusy}
+              loading={isBusy}
               onClick={startLogin}
-              aria-busy={isBusy}
               className="mt-5 h-11 w-full text-[0.95rem]"
             >
               <span>Log in with LinkedIn</span>
-              {isBusy ? (
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
-              ) : null}
             </Button>
 
             <p className="mt-3 text-xs text-muted-foreground">
@@ -170,6 +148,6 @@ export function LoginPanel() {
           </CardContent>
         </Card>
       </div>
-    </section>
+    </motion.section>
   );
 }

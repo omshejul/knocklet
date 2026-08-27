@@ -3,7 +3,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CircleCheck,
-  LoaderCircle,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   FileUpload,
   FileUploadDropzone,
@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRangeSelection } from "@/hooks/use-range-selection";
+import { appear } from "@/lib/motion";
 
 type PersonStatus =
   | "ready"
@@ -180,24 +181,6 @@ function isRunning(connectionImport: ConnectionImport | null) {
   );
 }
 
-function appear(reduced: boolean | null) {
-  return {
-    initial: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 12, filter: "blur(12px)" },
-    animate: reduced
-      ? { opacity: 1 }
-      : { opacity: 1, y: 0, filter: "blur(0px)" },
-    exit: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 8, filter: "blur(10px)" },
-    transition: {
-      duration: reduced ? 0.01 : 0.2,
-      ease: "easeOut" as const,
-    },
-  };
-}
-
 export function ConnectionImportPanel({
   section,
 }: {
@@ -213,6 +196,8 @@ export function ConnectionImportPanel({
     new Set(),
   );
   const [isUploading, setIsUploading] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [isCheckingAcceptance, setIsCheckingAcceptance] = useState(false);
   const [acceptanceActivity, setAcceptanceActivity] = useState("");
   const [acceptanceResult, setAcceptanceResult] =
@@ -235,6 +220,11 @@ export function ConnectionImportPanel({
       .catch((historyError: Error) => {
         if (active) {
           setError(historyError.message);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsHistoryLoading(false);
         }
       });
     return () => {
@@ -333,6 +323,7 @@ export function ConnectionImportPanel({
       return;
     }
 
+    setIsApproving(true);
     setError("");
     try {
       const response = await fetch(
@@ -358,6 +349,8 @@ export function ConnectionImportPanel({
           ? requestError.message
           : "Requests could not be started.",
       );
+    } finally {
+      setIsApproving(false);
     }
   }
 
@@ -471,9 +464,9 @@ export function ConnectionImportPanel({
     selectedReadyCount > 0 && selectedReadyCount < readyPeople.length;
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
+    <>
       {section === "send" ? (
-        <motion.div key="send" {...appear(reducedMotion)} className="mt-5">
+        <div className="mt-5">
           <Card className="shadow-xl shadow-black/40">
             <CardContent className="space-y-4 px-4 sm:px-5">
               <form onSubmit={importCsv} className="space-y-3">
@@ -497,7 +490,9 @@ export function ConnectionImportPanel({
                   maxFiles={1}
                   maxSize={2 * 1024 * 1024}
                   label="Contacts file"
-                  disabled={isUploading || isRunning(connectionImport)}
+                  disabled={
+                    isUploading || isApproving || isRunning(connectionImport)
+                  }
                 >
                   {!file ? (
                     <FileUploadDropzone className="min-h-36 rounded-xl border border-dashed bg-muted/20 px-4 py-8 hover:bg-muted/35 data-dragging:border-primary data-dragging:bg-muted/50">
@@ -537,7 +532,8 @@ export function ConnectionImportPanel({
                 <Button
                   type="submit"
                   size="lg"
-                  disabled={!file || isUploading || isRunning(connectionImport)}
+                  disabled={!file || isRunning(connectionImport)}
+                  loading={isUploading}
                   className="h-11 w-full"
                 >
                   Preview file
@@ -674,6 +670,7 @@ export function ConnectionImportPanel({
                       size="lg"
                       onClick={approveImport}
                       disabled={selectedReadyCount === 0}
+                      loading={isApproving}
                       className="h-11 w-full sm:w-auto"
                     >
                       Send {selectedReadyCount} connection requests
@@ -683,9 +680,9 @@ export function ConnectionImportPanel({
               ) : null}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
       ) : (
-        <motion.div key="history" {...appear(reducedMotion)} className="mt-5">
+        <div className="mt-5">
           <Card className="shadow-xl shadow-black/40">
             <CardContent className="space-y-3 px-4 sm:px-5">
               <div className="flex justify-end">
@@ -693,17 +690,11 @@ export function ConnectionImportPanel({
                   type="button"
                   variant="outline"
                   onClick={refreshAcceptance}
-                  disabled={!hasPendingAcceptance || isCheckingAcceptance}
-                  aria-busy={isCheckingAcceptance}
+                  disabled={!hasPendingAcceptance}
+                  loading={isCheckingAcceptance}
                   className="min-h-11"
                 >
                   Check accepted
-                  {isCheckingAcceptance ? (
-                    <LoaderCircle
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : null}
                 </Button>
               </div>
 
@@ -746,7 +737,11 @@ export function ConnectionImportPanel({
                 </Alert>
               ) : null}
 
-              {activity.length > 0 ? (
+              {isHistoryLoading ? (
+                <LoadingState className="justify-center py-8">
+                  Loading invitation history...
+                </LoadingState>
+              ) : activity.length > 0 ? (
                 <div
                   className="overflow-hidden rounded-xl border"
                   aria-label="Invitation history"
@@ -843,9 +838,9 @@ export function ConnectionImportPanel({
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 }
 

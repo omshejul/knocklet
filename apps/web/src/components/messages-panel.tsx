@@ -1,12 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Switch } from "@/components/ui/switch";
 import {
   getTemplateFieldError,
@@ -14,6 +14,7 @@ import {
   type TemplateField,
 } from "@/components/template-field-editor";
 import { cn } from "@/lib/utils";
+import { appear } from "@/lib/motion";
 
 type MessageTemplate = {
   body: string;
@@ -145,6 +146,10 @@ export function MessagesPanel() {
 
       <Card className="mt-5 shadow-xl shadow-black/40">
         <CardContent className="space-y-4 px-4 sm:px-5">
+          {isLoading ? (
+            <LoadingState>Loading message settings...</LoadingState>
+          ) : null}
+
           <div>
             <label htmlFor="message-template" className="text-sm font-bold">
               Follow-up template
@@ -207,17 +212,13 @@ export function MessagesPanel() {
                   type="button"
                   onClick={saveTemplate}
                   disabled={
-                    isSaving ||
                     body.trim().length === 0 ||
                     Boolean(fieldError)
                   }
-                  aria-busy={isSaving}
+                  loading={isSaving}
                   className="min-h-11"
                 >
                   Save template
-                  {isSaving ? (
-                    <LoaderCircle className="animate-spin" aria-hidden="true" />
-                  ) : null}
                 </Button>
               </motion.div>
             ) : null}
@@ -226,19 +227,4 @@ export function MessagesPanel() {
       </Card>
     </>
   );
-}
-
-function appear(reduced: boolean | null) {
-  return {
-    initial: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 12, filter: "blur(12px)" },
-    animate: reduced
-      ? { opacity: 1 }
-      : { opacity: 1, y: 0, filter: "blur(0px)" },
-    exit: reduced
-      ? { opacity: 0 }
-      : { opacity: 0, y: 8, filter: "blur(10px)" },
-    transition: { duration: reduced ? 0.01 : 0.2, ease: "easeOut" as const },
-  };
 }
