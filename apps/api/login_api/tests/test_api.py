@@ -88,6 +88,60 @@ class LoginApiTests(TestCase):
             "Daily call limit must be between 1 and 1000."
         )
 
+    @patch("login_api.api.get_acceptance_check_settings")
+    def test_reads_acceptance_check_settings(self, settings):
+        settings.return_value = {
+            "auto_check": True,
+            "frequency_minutes": 60,
+            "default_frequency_minutes": 60,
+            "minimum_frequency_minutes": 5,
+            "maximum_frequency_minutes": 1440,
+        }
+
+        response = self.client.get("/api/settings/acceptance-checks")
+
+        assert response.status_code == 200
+        assert response.json()["frequency_minutes"] == 60
+
+    @patch("login_api.api.save_acceptance_check_settings")
+    def test_updates_acceptance_check_settings(self, save_settings):
+        save_settings.return_value = {
+            "auto_check": False,
+            "frequency_minutes": 120,
+            "default_frequency_minutes": 60,
+            "minimum_frequency_minutes": 5,
+            "maximum_frequency_minutes": 1440,
+        }
+
+        response = self.client.put(
+            "/api/settings/acceptance-checks",
+            data={"auto_check": False, "frequency_minutes": 120},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        save_settings.assert_called_once_with(
+            auto_check=False,
+            frequency_minutes=120,
+        )
+
+    @patch("login_api.api.save_acceptance_check_settings")
+    def test_rejects_an_invalid_acceptance_check_frequency(self, save_settings):
+        save_settings.side_effect = ValueError(
+            "Acceptance check frequency must be between 5 and 1440 minutes."
+        )
+
+        response = self.client.put(
+            "/api/settings/acceptance-checks",
+            data={"auto_check": True, "frequency_minutes": 2},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "Acceptance check frequency must be between 5 and 1440 minutes."
+        )
+
     @patch("login_api.api.login_manager")
     def test_starts_login(self, manager):
         manager.start.return_value = snapshot(LoginState.WAITING)

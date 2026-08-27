@@ -24,6 +24,9 @@ DEFAULTS = {
 DEFAULT_DAILY_LIMIT = DEFAULTS["rate_limits.daily_limit"]
 MIN_DAILY_LIMIT = 1
 MAX_DAILY_LIMIT = 1000
+DEFAULT_ACCEPTANCE_CHECK_MINUTES = 60
+MIN_ACCEPTANCE_CHECK_MINUTES = 5
+MAX_ACCEPTANCE_CHECK_MINUTES = 1440
 
 
 def _load_config() -> dict:
@@ -113,6 +116,64 @@ def get_rate_limit_usage() -> dict:
         "remaining": max(daily_limit - daily_calls, 0),
         "calls_per_minute": calls_per_minute,
     }
+
+
+def get_acceptance_check_settings() -> dict:
+    """Return persisted automatic acceptance-check settings."""
+    auto_check = get_setting("automation.acceptance_auto_check", True)
+    frequency = get_setting(
+        "automation.acceptance_check_minutes",
+        DEFAULT_ACCEPTANCE_CHECK_MINUTES,
+    )
+    if not isinstance(auto_check, bool):
+        raise RuntimeError("Automatic acceptance-check setting is invalid.")
+    if (
+        isinstance(frequency, bool)
+        or not isinstance(frequency, int)
+        or not MIN_ACCEPTANCE_CHECK_MINUTES
+        <= frequency
+        <= MAX_ACCEPTANCE_CHECK_MINUTES
+    ):
+        raise RuntimeError("Acceptance-check frequency setting is invalid.")
+    return {
+        "auto_check": auto_check,
+        "frequency_minutes": frequency,
+        "default_frequency_minutes": DEFAULT_ACCEPTANCE_CHECK_MINUTES,
+        "minimum_frequency_minutes": MIN_ACCEPTANCE_CHECK_MINUTES,
+        "maximum_frequency_minutes": MAX_ACCEPTANCE_CHECK_MINUTES,
+    }
+
+
+def set_acceptance_check_settings(
+    *,
+    auto_check: bool,
+    frequency_minutes: int,
+) -> dict:
+    """Validate and persist automatic acceptance-check settings together."""
+    if not isinstance(auto_check, bool):
+        raise ValueError("Auto-check must be true or false.")
+    if (
+        isinstance(frequency_minutes, bool)
+        or not isinstance(frequency_minutes, int)
+        or not MIN_ACCEPTANCE_CHECK_MINUTES
+        <= frequency_minutes
+        <= MAX_ACCEPTANCE_CHECK_MINUTES
+    ):
+        raise ValueError(
+            "Acceptance check frequency must be between "
+            f"{MIN_ACCEPTANCE_CHECK_MINUTES} and "
+            f"{MAX_ACCEPTANCE_CHECK_MINUTES} minutes."
+        )
+
+    config = _load_config()
+    automation = config.get("automation")
+    if not isinstance(automation, dict):
+        automation = {}
+        config["automation"] = automation
+    automation["acceptance_auto_check"] = auto_check
+    automation["acceptance_check_minutes"] = frequency_minutes
+    _save_config(config)
+    return get_acceptance_check_settings()
 
 
 @app.command("show")

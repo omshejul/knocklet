@@ -5,6 +5,11 @@ from datetime import timezone as datetime_timezone
 from django.db import transaction
 from django.utils import timezone
 
+from commands.config import (
+    get_acceptance_check_settings,
+    set_acceptance_check_settings,
+)
+
 from .models import (
     ConnectionImport,
     ConnectionRequest,
@@ -94,6 +99,10 @@ def enqueue_acceptance_check(*, force: bool = False) -> WorkItem | None:
     if not Invitation.objects.filter(status=Invitation.Status.PENDING).exists():
         return None
 
+    settings = get_acceptance_check_settings()
+    if not force and not settings["auto_check"]:
+        return None
+
     active = WorkItem.objects.filter(
         kind=WorkItem.Kind.CHECK_ACCEPTANCES,
         status__in=[WorkItem.Status.QUEUED, WorkItem.Status.RUNNING],
@@ -109,12 +118,45 @@ def enqueue_acceptance_check(*, force: bool = False) -> WorkItem | None:
         kind=WorkItem.Kind.CHECK_ACCEPTANCES,
         completed_at__isnull=False,
     ).order_by("-completed_at").first()
-    due_at = now if force or last_check is None else last_check.completed_at + ACCEPTANCE_INTERVAL
+    interval = timedelta(minutes=settings["frequency_minutes"])
+    due_at = now if force or last_check is None else last_check.completed_at + interval
     return WorkItem.objects.create(
         kind=WorkItem.Kind.CHECK_ACCEPTANCES,
         due_at=due_at,
         dedupe_key=f"acceptance:{due_at.isoformat()}",
     )
+
+
+def save_acceptance_check_settings(
+    *,
+    auto_check: bool,
+    frequency_minutes: int,
+) -> dict:
+    """Save scheduling settings and update queued automatic checks."""
+    settings = set_acceptance_check_settings(
+        auto_check=auto_check,
+        frequency_minutes=frequency_minutes,
+    )
+    now = timezone.now()
+    future_checks = WorkItem.objects.filter(
+        kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+        status=WorkItem.Status.QUEUED,
+        due_at__gt=now,
+    )
+    if not auto_check:
+        future_checks.update(
+            status=WorkItem.Status.CANCELLED,
+            completed_at=now,
+        )
+        return settings
+
+    queued_check = future_checks.order_by("due_at").first()
+    if queued_check:
+        queued_check.due_at = now + timedelta(minutes=frequency_minutes)
+        queued_check.save(update_fields=["due_at"])
+    else:
+        enqueue_acceptance_check()
+    return settings
 
 
 def run_due_work_once(client_factory: ClientFactory | None = None) -> WorkItem | None:
