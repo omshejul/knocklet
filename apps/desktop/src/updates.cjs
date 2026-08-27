@@ -74,7 +74,7 @@ function createUpdateManager({ updater, currentVersion, enabled, onStateChange }
     listen("error", fail);
   }
 
-  async function checkForUpdates() {
+  async function checkForUpdates({ downloadIfAvailable = false } = {}) {
     if (!enabled) throw new Error("Updates are available only in the installed app.");
     if (["checking", "downloading", "installing"].includes(state.status)) {
       throw new Error("An update action is already running.");
@@ -82,6 +82,9 @@ function createUpdateManager({ updater, currentVersion, enabled, onStateChange }
     publish({ status: "checking", progress: null, error: null });
     try {
       await updater.checkForUpdates();
+      if (downloadIfAvailable && state.status === "available") {
+        return downloadUpdate();
+      }
       return getState();
     } catch (error) {
       fail(error);

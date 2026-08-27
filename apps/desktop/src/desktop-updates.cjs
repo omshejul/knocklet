@@ -58,7 +58,8 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
     }
     return {
       label: "Check for Updates",
-      click: () => run(manager.checkForUpdates),
+      click: () =>
+        run(() => manager.checkForUpdates({ downloadIfAvailable: true })),
     };
   }
 
@@ -126,7 +127,9 @@ function createDesktopUpdates({ app, getTray, getWindow, openWindow, setQuitting
   }
 
   ipcMain.handle("updates:get-state", () => manager.getState());
-  ipcMain.handle("updates:check", () => manager.checkForUpdates());
+  ipcMain.handle("updates:check", () =>
+    manager.checkForUpdates({ downloadIfAvailable: true }),
+  );
   ipcMain.handle("updates:download", () => manager.downloadUpdate());
   ipcMain.handle("updates:install", () => {
     return install();

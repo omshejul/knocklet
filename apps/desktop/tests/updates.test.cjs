@@ -44,6 +44,24 @@ test("checks for updates without downloading them", async () => {
   });
 });
 
+test("downloads an available update after a user check", async () => {
+  const updater = new FakeUpdater();
+  updater.checkForUpdates = async () => {
+    updater.emit("checking-for-update");
+    updater.emit("update-available", { version: "0.3.0" });
+  };
+  const manager = createUpdateManager({
+    updater,
+    currentVersion: "0.2.0",
+    enabled: true,
+  });
+
+  await manager.checkForUpdates({ downloadIfAvailable: true });
+
+  assert.equal(manager.getState().status, "downloaded");
+  assert.equal(manager.getState().availableVersion, "0.3.0");
+});
+
 test("downloads and installs an available update", async () => {
   const updater = new FakeUpdater();
   const states = [];
