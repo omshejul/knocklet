@@ -30,7 +30,11 @@ class SafeClient:
         return set()
 
     def get_connection_state(self, public_id, name=""):
-        return "not_connected"
+        return {
+            "state": "not_connected",
+            "public_id": public_id,
+            "url": f"https://www.linkedin.com/in/{public_id}/",
+        }
 
     def add_connection(self, profile_public_id):
         self.sent.append(profile_public_id)
@@ -40,6 +44,15 @@ class SafeClient:
 class UncertainClient(SafeClient):
     def add_connection(self, profile_public_id):
         raise TimeoutError("LinkedIn did not confirm the invitation.")
+
+
+class RenamedProfileClient(SafeClient):
+    def get_connection_state(self, public_id, name=""):
+        return {
+            "state": "not_connected",
+            "public_id": "ca-tejas-kandoi-linked-in",
+            "url": "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/",
+        }
 
 
 class AcceptedMessagingClient:
@@ -72,6 +85,35 @@ class AutomationTests(TransactionTestCase):
         assert WorkItem.objects.get(kind="send_invitation").status == "queued"
         run_due_work(lambda: client)
         assert client.sent == ["ada"]
+
+    def test_renamed_profile_uses_and_saves_the_canonical_url(self):
+        client = RenamedProfileClient()
+        person = Person.objects.create(
+            name="CA Tejas Kandoi",
+            linkedin_url=(
+                "https://www.linkedin.com/in/ca-tejas-kandoi-0b7b3476/"
+            ),
+            public_id="ca-tejas-kandoi-0b7b3476",
+        )
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.QUEUED,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            invitation=invitation,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        person.refresh_from_db()
+        assert client.sent == ["ca-tejas-kandoi-linked-in"]
+        assert person.public_id == "ca-tejas-kandoi-linked-in"
+        assert person.normalized_public_id == "ca-tejas-kandoi-linked-in"
+        assert person.linkedin_url == (
+            "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/"
+        )
 
     def test_uncertain_write_is_not_retried(self):
         store = ConnectionImportStore(client_factory=UncertainClient)

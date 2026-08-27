@@ -1345,8 +1345,8 @@ class LinkedinClient:
 
         return public_ids
 
-    def get_connection_state(self, public_profile_id: str, name: str = "") -> str:
-        """Return connected, not_connected, or unknown for one profile."""
+    def get_connection_state(self, public_profile_id: str, name: str = "") -> dict:
+        """Return connection state and canonical identity for one profile."""
         import re
 
         profiles = self.search_people(
@@ -1364,6 +1364,15 @@ class LinkedinClient:
             None,
         )
         if profile is None and name:
+            name_matches = [
+                item
+                for item in profiles
+                if item.get("name", "").strip().casefold()
+                == name.strip().casefold()
+            ]
+            if len(name_matches) == 1:
+                profile = name_matches[0]
+        if profile is None and name:
             profiles = self.search_people(
                 keywords=name,
                 limit=10,
@@ -1380,15 +1389,20 @@ class LinkedinClient:
             )
 
         if profile is None:
-            return "unknown"
+            return {"state": "unknown", "public_id": "", "url": ""}
 
         degree = profile.get("connection_degree", "").casefold()
         degree_match = re.search(r"(?:^|\W)(1st|2nd|3rd)(?:\W|$)", degree)
+        state = "unknown"
         if degree_match and degree_match.group(1) == "1st":
-            return "connected"
-        if degree_match and degree_match.group(1) in {"2nd", "3rd"}:
-            return "not_connected"
-        return "unknown"
+            state = "connected"
+        elif degree_match and degree_match.group(1) in {"2nd", "3rd"}:
+            state = "not_connected"
+        return {
+            "state": state,
+            "public_id": profile.get("public_id", ""),
+            "url": profile.get("url", ""),
+        }
 
     def add_connection(self, profile_public_id: str, message="", profile_urn=None):
         import base64

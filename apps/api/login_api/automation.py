@@ -251,6 +251,30 @@ def _send_invitation(work_item: WorkItem, client) -> None:
         public_id.casefold() for public_id in client.get_sent_invitation_public_ids()
     }
     checked_at = timezone.now()
+
+    connection = None
+    if person.normalized_public_id not in pending_ids:
+        connection = client.get_connection_state(person.public_id, name=person.name)
+        canonical_public_id = connection.get("public_id", "").strip()
+        if canonical_public_id:
+            canonical_url = connection.get("url") or (
+                f"https://www.linkedin.com/in/{canonical_public_id}/"
+            )
+            if (
+                person.public_id != canonical_public_id
+                or person.linkedin_url != canonical_url
+            ):
+                person.public_id = canonical_public_id
+                person.linkedin_url = canonical_url
+                person.save(
+                    update_fields=[
+                        "public_id",
+                        "normalized_public_id",
+                        "linkedin_url",
+                        "updated_at",
+                    ]
+                )
+
     if person.normalized_public_id in pending_ids:
         _set_invitation_status(
             invitation,
@@ -262,7 +286,8 @@ def _send_invitation(work_item: WorkItem, client) -> None:
         _succeed(work_item)
         return
 
-    connection_state = client.get_connection_state(person.public_id, name=person.name)
+    assert connection is not None
+    connection_state = connection["state"]
     if connection_state == "connected":
         _set_invitation_status(
             invitation,

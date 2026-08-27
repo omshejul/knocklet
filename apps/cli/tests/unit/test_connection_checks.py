@@ -76,7 +76,11 @@ def test_search_relationship_marks_first_degree_as_connected():
 
     client.search_people = search_people
 
-    assert client.get_connection_state("ada") == "connected"
+    assert client.get_connection_state("ada") == {
+        "state": "connected",
+        "public_id": "ada",
+        "url": "",
+    }
     assert calls == [("ada", 10, True)]
 
 
@@ -87,8 +91,8 @@ def test_search_relationship_marks_second_and_third_degree_as_not_connected():
         {"public_id": kwargs["keywords"], "connection_degree": next(degrees)}
     ]
 
-    assert client.get_connection_state("ada") == "not_connected"
-    assert client.get_connection_state("grace") == "not_connected"
+    assert client.get_connection_state("ada")["state"] == "not_connected"
+    assert client.get_connection_state("grace")["state"] == "not_connected"
 
 
 def test_search_relationship_falls_back_to_name_and_requires_exact_profile():
@@ -103,10 +107,31 @@ def test_search_relationship_falls_back_to_name_and_requires_exact_profile():
 
     client.search_people = search_people
 
-    assert client.get_connection_state("ada", name="Ada Lovelace") == (
+    assert client.get_connection_state("ada", name="Ada Lovelace")["state"] == (
         "not_connected"
     )
     assert calls == ["ada", "Ada Lovelace"]
+
+
+def test_search_relationship_returns_a_renamed_profile():
+    client = object.__new__(LinkedinClient)
+    client.search_people = lambda **kwargs: [
+        {
+            "name": "CA Tejas Kandoi",
+            "public_id": "ca-tejas-kandoi-linked-in",
+            "url": "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/",
+            "connection_degree": "2nd",
+        }
+    ]
+
+    assert client.get_connection_state(
+        "ca-tejas-kandoi-0b7b3476",
+        name="CA Tejas Kandoi",
+    ) == {
+        "state": "not_connected",
+        "public_id": "ca-tejas-kandoi-linked-in",
+        "url": "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/",
+    }
 
 
 def test_search_relationship_returns_unknown_when_exact_profile_is_missing():
@@ -115,7 +140,11 @@ def test_search_relationship_returns_unknown_when_exact_profile_is_missing():
         {"public_id": "not-ada", "connection_degree": "1st"}
     ]
 
-    assert client.get_connection_state("ada") == "unknown"
+    assert client.get_connection_state("ada") == {
+        "state": "unknown",
+        "public_id": "",
+        "url": "",
+    }
 
 
 def test_search_relationship_preserves_linkedin_http_errors():

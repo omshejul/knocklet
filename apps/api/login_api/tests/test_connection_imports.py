@@ -30,7 +30,11 @@ class FakeLinkedInClient:
 
     def get_connection_state(self, public_id, name=""):
         self.checked_profiles.append((public_id, name))
-        return self.connection_states.get(public_id, "not_connected")
+        return {
+            "state": self.connection_states.get(public_id, "not_connected"),
+            "public_id": public_id,
+            "url": f"https://www.linkedin.com/in/{public_id}/",
+        }
 
     def add_connection(self, profile_public_id: str):
         self.public_ids.append(profile_public_id)
