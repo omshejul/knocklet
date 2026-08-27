@@ -135,7 +135,12 @@ export function MessagesPanel() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-normal tracking-tight">Messages</h1>
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
-          <span className="text-right">Send automatically after acceptance</span>
+          <span className="text-right">
+            <span className="block">Send automatically after acceptance</span>
+            <span className="block text-xs text-muted-foreground">
+              Applies to uploads approved after saving
+            </span>
+          </span>
           <Switch
             checked={autoSend}
             onCheckedChange={setAutoSend}
@@ -168,7 +173,7 @@ export function MessagesPanel() {
               )}
             >
               {fieldError ||
-                "Type { to insert a field. Applies to requests approved after saving."}
+                "Type { to insert a field."}
             </p>
           </div>
 
