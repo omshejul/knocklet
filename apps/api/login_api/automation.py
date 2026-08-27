@@ -560,6 +560,12 @@ def _requeue_invitation(invitation: Invitation, queued_at) -> None:
     invitation.sent_at = None
     invitation.accepted_at = None
     _set_invitation_status(invitation, Invitation.Status.QUEUED)
+    ConnectionImport.objects.filter(
+        requests__invitation=invitation
+    ).update(
+        status=ConnectionImport.Status.CHECKING,
+        completed_at=None,
+    )
     work_item = invitation.work_items.filter(
         kind=WorkItem.Kind.SEND_INVITATION
     ).order_by("-created_at").first()
