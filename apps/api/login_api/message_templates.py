@@ -9,6 +9,18 @@ TEMPLATE_FIELDS = {
     "first_name": "First name",
     "full_name": "Full name",
 }
+FIRST_NAME_PREFIXES = {
+    "adv",
+    "ca",
+    "cma",
+    "cpa",
+    "cs",
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+}
 MAX_DELAY_MINUTES = 7 * 24 * 60
 
 
@@ -42,8 +54,14 @@ def validate_template_body(body: str) -> None:
 def render_template_body(body: str, full_name: str) -> str:
     validate_template_body(body)
     clean_name = full_name.strip()
+    name_parts = clean_name.split()
+    while (
+        len(name_parts) > 1
+        and name_parts[0].rstrip(".").casefold() in FIRST_NAME_PREFIXES
+    ):
+        name_parts.pop(0)
     values = {
-        "first_name": clean_name.split()[0] if clean_name else "there",
+        "first_name": name_parts[0] if name_parts else "there",
         "full_name": clean_name or "there",
     }
     return TEMPLATE_FIELD_PATTERN.sub(

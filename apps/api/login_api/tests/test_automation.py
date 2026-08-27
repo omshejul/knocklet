@@ -129,7 +129,7 @@ class AutomationTests(TransactionTestCase):
 
     def test_acceptance_queues_and_sends_the_approved_auto_send_snapshot(self):
         client = AcceptedMessagingClient()
-        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        person = Person.objects.create(name="CA Akhil Kumar", public_id="ada")
         invitation = Invitation.objects.create(
             person=person,
             status=Invitation.Status.PENDING,
@@ -144,7 +144,7 @@ class AutomationTests(TransactionTestCase):
             filename="people.csv",
             status=ConnectionImport.Status.COMPLETE,
             message_template=template,
-            message_template_body="Hello {first_name}",
+            message_template_body="Hi, {first_name}. Thanks for connecting",
             message_delay_minutes=0,
             auto_message_enabled=True,
         )
@@ -170,10 +170,13 @@ class AutomationTests(TransactionTestCase):
         invitation.refresh_from_db()
         message = Message.objects.get(invitation=invitation)
         assert invitation.status == "accepted"
-        assert message.body == "Hello Ada"
+        assert message.body == "Hi, Akhil. Thanks for connecting"
         assert message.status == "sent"
         assert client.messages == [
-            ("Hello Ada", ["urn:li:fsd_profile:ada"]),
+            (
+                "Hi, Akhil. Thanks for connecting",
+                ["urn:li:fsd_profile:ada"],
+            ),
         ]
 
     def test_invalid_template_snapshot_is_never_sent(self):
