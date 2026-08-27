@@ -1,12 +1,22 @@
-from django.db.models import Max
+from django.db.models import Max, OuterRef, Subquery
 
-from .models import Invitation, Message, Person
+from .models import Invitation, Message, Person, WorkItem
 
 
 def list_people(limit: int = 500) -> list[dict]:
     people = (
         Person.objects.select_related("invitation", "invitation__message")
-        .annotate(last_imported_at=Max("import_rows__connection_import__created_at"))
+        .annotate(
+            last_imported_at=Max("import_rows__connection_import__created_at"),
+            message_due_at=Subquery(
+                WorkItem.objects.filter(
+                    kind=WorkItem.Kind.SEND_MESSAGE,
+                    message__invitation__person_id=OuterRef("pk"),
+                )
+                .order_by("-created_at")
+                .values("due_at")[:1]
+            ),
+        )
         .order_by("-invitation__updated_at", "-last_imported_at", "name")[:limit]
     )
     return [_person_snapshot(person) for person in people]
@@ -51,6 +61,10 @@ def _person_snapshot(person: Person) -> dict:
         "checked_at": invitation.checked_at.isoformat() if invitation and invitation.checked_at else None,
         "message_status": message.status if message else "not_scheduled",
         "message_error": message.error or None if message else None,
+        "message_body": message.body if message else None,
+        "message_due_at": (
+            person.message_due_at.isoformat() if person.message_due_at else None
+        ),
         "message_sent_at": message.sent_at.isoformat() if message and message.sent_at else None,
         "last_activity_at": last_activity.isoformat(),
     }

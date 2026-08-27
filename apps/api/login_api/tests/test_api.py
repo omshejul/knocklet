@@ -5,7 +5,15 @@ from django.test import TestCase
 from django.utils import timezone
 
 from login_api.cli_login import LoginSnapshot, LoginState
-from login_api.models import Invitation, Message, MessageTemplate, Person, WorkItem
+from login_api.models import (
+    ConnectionImport,
+    ConnectionRequest,
+    Invitation,
+    Message,
+    MessageTemplate,
+    Person,
+    WorkItem,
+)
 
 
 def snapshot(state: LoginState) -> LoginSnapshot:
@@ -309,6 +317,167 @@ class LoginApiTests(TestCase):
         assert work_item.completed_at is None
         assert Message.objects.filter(invitation=invitation).count() == 1
         assert WorkItem.objects.filter(message=message).count() == 1
+
+    def test_retries_a_failed_invitation(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        completed_at = timezone.now()
+        connection_import = ConnectionImport.objects.create(
+            filename="people.csv",
+            status=ConnectionImport.Status.COMPLETE,
+            completed_at=completed_at,
+        )
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.FAILED,
+            error="LinkedIn returned status 429.",
+        )
+        connection_request = ConnectionRequest.objects.create(
+            connection_import=connection_import,
+            row_number=2,
+            name=person.name,
+            public_id=person.public_id,
+            status=ConnectionRequest.Status.FAILED,
+            person=person,
+            invitation=invitation,
+        )
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            status=WorkItem.Status.FAILED,
+            invitation=invitation,
+            due_at=timezone.now(),
+            error=invitation.error,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/people/{person.id}/invitation/retry",
+        )
+
+        assert response.status_code == 202
+        assert response.json() == {"kind": "invitation", "status": "queued"}
+        connection_import.refresh_from_db()
+        connection_request.refresh_from_db()
+        invitation.refresh_from_db()
+        work_item.refresh_from_db()
+        assert connection_import.status == ConnectionImport.Status.CHECKING
+        assert connection_import.completed_at is None
+        assert connection_request.status == ConnectionRequest.Status.READY
+        assert invitation.status == Invitation.Status.QUEUED
+        assert invitation.error == ""
+        assert work_item.status == WorkItem.Status.QUEUED
+        assert work_item.error == ""
+        assert work_item.completed_at is None
+
+    def test_confirms_an_uncertain_invitation_was_sent(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.NEEDS_REVIEW,
+            error="LinkedIn did not confirm the invitation.",
+        )
+        started_at = timezone.now()
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_INVITATION,
+            status=WorkItem.Status.NEEDS_REVIEW,
+            invitation=invitation,
+            due_at=started_at,
+            started_at=started_at,
+            completed_at=started_at,
+            error=invitation.error,
+        )
+
+        response = self.client.post(
+            f"/api/people/{person.id}/review",
+            data={"outcome": "sent"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"kind": "invitation", "status": "pending"}
+        invitation.refresh_from_db()
+        work_item.refresh_from_db()
+        assert invitation.status == Invitation.Status.PENDING
+        assert invitation.sent_at == started_at
+        assert work_item.status == WorkItem.Status.SUCCEEDED
+
+    def test_retries_an_uncertain_message_after_it_was_not_sent(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello Ada",
+            status=Message.Status.NEEDS_REVIEW,
+            error="LinkedIn did not confirm the message.",
+        )
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.NEEDS_REVIEW,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+            completed_at=timezone.now(),
+            error=message.error,
+        )
+
+        response = self.client.post(
+            f"/api/people/{person.id}/review",
+            data={"outcome": "not_sent"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        assert response.json() == {"kind": "message", "status": "queued"}
+        message.refresh_from_db()
+        work_item.refresh_from_db()
+        assert message.status == Message.Status.QUEUED
+        assert message.error == ""
+        assert work_item.status == WorkItem.Status.QUEUED
+        assert work_item.completed_at is None
+
+    def test_resolves_an_interrupted_message_before_a_stale_invitation_review(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.NEEDS_REVIEW,
+            error="The app stopped while this action was running.",
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello Ada",
+            status=Message.Status.NEEDS_REVIEW,
+            error="LinkedIn did not confirm the message.",
+        )
+        started_at = timezone.now()
+        work_item = WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.NEEDS_REVIEW,
+            invitation=invitation,
+            message=message,
+            due_at=started_at,
+            started_at=started_at,
+            completed_at=started_at,
+            error=message.error,
+        )
+
+        response = self.client.post(
+            f"/api/people/{person.id}/review",
+            data={"outcome": "sent"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"kind": "message", "status": "sent"}
+        invitation.refresh_from_db()
+        message.refresh_from_db()
+        work_item.refresh_from_db()
+        assert invitation.status == Invitation.Status.ACCEPTED
+        assert invitation.error == ""
+        assert message.status == Message.Status.SENT
+        assert message.sent_at == started_at
+        assert work_item.status == WorkItem.Status.SUCCEEDED
 
     def test_retry_rebuilds_a_message_with_an_unresolved_field(self):
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
