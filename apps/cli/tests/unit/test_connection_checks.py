@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from linkedin_wrapper import LinkedinAPIError, LinkedinClient
@@ -63,6 +65,35 @@ def test_falls_back_to_the_legacy_sent_invitation_view():
     assert len(calls) == 2
 
 
+def test_empty_current_sent_invitation_view_does_not_call_legacy_endpoint():
+    client = object.__new__(LinkedinClient)
+    calls = []
+
+    def api_get(endpoint):
+        calls.append(endpoint)
+        return {"data": {"elements": [], "paging": {"total": 0}}}
+
+    client._api_get = api_get
+
+    assert client.get_sent_invitation_public_ids() == set()
+    assert len(calls) == 1
+
+
+def test_reuses_a_recent_sent_invitation_snapshot():
+    client = object.__new__(LinkedinClient)
+    calls = []
+
+    def api_get(endpoint):
+        calls.append(endpoint)
+        return {"data": {"elements": [], "paging": {"total": 0}}}
+
+    client._api_get = api_get
+
+    assert client.get_sent_invitation_public_ids() == set()
+    assert client.get_sent_invitation_public_ids() == set()
+    assert len(calls) == 1
+
+
 def test_search_relationship_marks_first_degree_as_connected():
     client = object.__new__(LinkedinClient)
     calls = []
@@ -80,6 +111,7 @@ def test_search_relationship_marks_first_degree_as_connected():
         "state": "connected",
         "public_id": "ada",
         "url": "",
+        "urn_id": "",
     }
     assert calls == [("ada", 10, True)]
 
@@ -131,6 +163,7 @@ def test_search_relationship_returns_a_renamed_profile():
         "state": "not_connected",
         "public_id": "ca-tejas-kandoi-linked-in",
         "url": "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/",
+        "urn_id": "",
     }
 
 
@@ -144,6 +177,7 @@ def test_search_relationship_returns_unknown_when_exact_profile_is_missing():
         "state": "unknown",
         "public_id": "",
         "url": "",
+        "urn_id": "",
     }
 
 
@@ -159,3 +193,53 @@ def test_search_relationship_preserves_linkedin_http_errors():
         client.get_connection_state("ada")
 
     assert error.value.status == 410
+
+
+def test_connection_state_returns_the_search_profile_urn():
+    client = object.__new__(LinkedinClient)
+    client.search_people = lambda **kwargs: [
+        {
+            "public_id": "ada",
+            "connection_degree": "2nd",
+            "urn_id": "urn:li:fsd_profile:ada-id",
+        }
+    ]
+
+    assert client.get_connection_state("ada")["urn_id"] == (
+        "urn:li:fsd_profile:ada-id"
+    )
+
+
+def test_get_profile_urn_uses_only_the_base_profile_request():
+    client = object.__new__(LinkedinClient)
+    calls = []
+
+    def api_get(endpoint):
+        calls.append(endpoint)
+        return {"elements": [{"entityUrn": "urn:li:fsd_profile:ada-id"}]}
+
+    client._api_get = api_get
+
+    assert client.get_profile_urn("ada") == "urn:li:fsd_profile:ada-id"
+    assert len(calls) == 1
+
+
+def test_add_connection_reuses_the_profile_urn_from_search():
+    client = object.__new__(LinkedinClient)
+    calls = []
+    client._sent_invitation_cache = (time.monotonic(), set())
+    client.get_profile_urn = lambda public_id: pytest.fail(
+        f"unexpected profile lookup for {public_id}"
+    )
+    client._api_post = lambda endpoint, payload: calls.append(
+        (endpoint, payload)
+    ) or {"status": 201}
+
+    result = client.add_connection(
+        profile_public_id="ada",
+        profile_urn="urn:li:fsd_profile:ada-id",
+    )
+
+    assert result == {"status": 201}
+    assert calls[0][1]["inviteeProfileUrn"] == "urn:li:fsd_profile:ada-id"
+    assert client.get_sent_invitation_public_ids() == {"ada"}

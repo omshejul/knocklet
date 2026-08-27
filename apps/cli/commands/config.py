@@ -1,6 +1,8 @@
 """CLI configuration management."""
 
 import json
+from datetime import date
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -19,6 +21,9 @@ DEFAULTS = {
     "rate_limits.daily_limit": 80,
     "browser.headless": True,
 }
+DEFAULT_DAILY_LIMIT = DEFAULTS["rate_limits.daily_limit"]
+MIN_DAILY_LIMIT = 1
+MAX_DAILY_LIMIT = 1000
 
 
 def _load_config() -> dict:
@@ -64,6 +69,50 @@ def set_setting(key: str, value):
         node = node[part]
     node[parts[-1]] = value
     _save_config(config)
+
+
+def set_daily_limit(value: int) -> None:
+    """Validate and persist the daily LinkedIn request budget."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_DAILY_LIMIT <= value <= MAX_DAILY_LIMIT
+    ):
+        raise ValueError(
+            f"Daily call limit must be between {MIN_DAILY_LIMIT} and "
+            f"{MAX_DAILY_LIMIT}."
+        )
+    set_setting("rate_limits.daily_limit", value)
+
+
+def get_rate_limit_usage() -> dict:
+    """Return today's persisted request usage and configured budgets."""
+    today = str(date.today())
+    daily_calls = 0
+    daily_file = CONFIG_DIR / "daily_calls.json"
+    if daily_file.exists():
+        try:
+            data = json.loads(daily_file.read_text())
+        except (json.JSONDecodeError, OSError) as error:
+            raise RuntimeError(
+                "LinkedIn request usage could not be read."
+            ) from error
+        if data.get("date") == today:
+            count = data.get("count", 0)
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise RuntimeError("LinkedIn request usage is invalid.")
+            daily_calls = count
+
+    daily_limit = get_setting("rate_limits.daily_limit", DEFAULT_DAILY_LIMIT)
+    calls_per_minute = get_setting("rate_limits.calls_per_minute", 15)
+    return {
+        "date": today,
+        "daily_calls": daily_calls,
+        "daily_limit": daily_limit,
+        "default_daily_limit": DEFAULT_DAILY_LIMIT,
+        "remaining": max(daily_limit - daily_calls, 0),
+        "calls_per_minute": calls_per_minute,
+    }
 
 
 @app.command("show")
@@ -126,7 +175,14 @@ def set_value(
     else:
         parsed = value
 
-    set_setting(key, parsed)
+    if key == "rate_limits.daily_limit":
+        try:
+            set_daily_limit(parsed)
+        except ValueError as error:
+            console.print(f"[red]{error}[/red]")
+            raise typer.Exit(1)
+    else:
+        set_setting(key, parsed)
     console.print(f"[green]{key}[/green] = {parsed}")
 
 

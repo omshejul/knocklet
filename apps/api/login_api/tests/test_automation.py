@@ -25,6 +25,7 @@ from login_api.models import (
 class SafeClient:
     def __init__(self):
         self.sent = []
+        self.sent_urns = []
 
     def get_sent_invitation_public_ids(self):
         return set()
@@ -34,15 +35,17 @@ class SafeClient:
             "state": "not_connected",
             "public_id": public_id,
             "url": f"https://www.linkedin.com/in/{public_id}/",
+            "urn_id": f"urn:li:fsd_profile:{public_id}-id",
         }
 
-    def add_connection(self, profile_public_id):
+    def add_connection(self, profile_public_id, profile_urn=None):
         self.sent.append(profile_public_id)
+        self.sent_urns.append(profile_urn)
         return {"status": 201}
 
 
 class UncertainClient(SafeClient):
-    def add_connection(self, profile_public_id):
+    def add_connection(self, profile_public_id, profile_urn=None):
         raise TimeoutError("LinkedIn did not confirm the invitation.")
 
 
@@ -52,18 +55,21 @@ class RenamedProfileClient(SafeClient):
             "state": "not_connected",
             "public_id": "ca-tejas-kandoi-linked-in",
             "url": "https://www.linkedin.com/in/ca-tejas-kandoi-linked-in/",
+            "urn_id": "urn:li:fsd_profile:tejas-id",
         }
 
 
 class AcceptedMessagingClient:
     def __init__(self):
         self.messages = []
+        self.since_ms = []
 
     def get_recent_connections(self, max_results, since_ms):
+        self.since_ms.append(since_ms)
         return [{"public_id": "ada", "connected_at": since_ms + 1000}]
 
-    def get_profile(self, public_id):
-        return {"entityUrn": "urn:li:fsd_profile:ada"}
+    def get_profile_urn(self, public_id):
+        return "urn:li:fsd_profile:ada"
 
     def send_message(self, message_body, recipients):
         self.messages.append((message_body, recipients))
@@ -85,6 +91,7 @@ class AutomationTests(TransactionTestCase):
         assert WorkItem.objects.get(kind="send_invitation").status == "queued"
         run_due_work(lambda: client)
         assert client.sent == ["ada"]
+        assert client.sent_urns == ["urn:li:fsd_profile:ada-id"]
 
     def test_renamed_profile_uses_and_saves_the_canonical_url(self):
         client = RenamedProfileClient()
@@ -109,6 +116,7 @@ class AutomationTests(TransactionTestCase):
 
         person.refresh_from_db()
         assert client.sent == ["ca-tejas-kandoi-linked-in"]
+        assert client.sent_urns == ["urn:li:fsd_profile:tejas-id"]
         assert person.public_id == "ca-tejas-kandoi-linked-in"
         assert person.normalized_public_id == "ca-tejas-kandoi-linked-in"
         assert person.linkedin_url == (
@@ -389,6 +397,25 @@ class AutomationTests(TransactionTestCase):
 
         assert next_check is not None
         assert next_check.due_at >= completed_at + ACCEPTANCE_INTERVAL
+
+    def test_acceptance_check_uses_the_last_successful_check_as_its_cutoff(self):
+        client = AcceptedMessagingClient()
+        checked_at = timezone.now() - timedelta(hours=1)
+        person = Person.objects.create(name="Ada", public_id="ada")
+        Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            sent_at=timezone.now() - timedelta(days=10),
+            checked_at=checked_at,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        assert client.since_ms == [int(checked_at.timestamp() * 1000)]
 
     @staticmethod
     def _person_id():

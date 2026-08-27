@@ -33,6 +33,61 @@ class LoginApiTests(TestCase):
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    @patch("login_api.api.get_rate_limit_usage")
+    def test_reads_linkedin_request_usage(self, usage):
+        usage.return_value = {
+            "date": "2026-08-27",
+            "daily_calls": 37,
+            "daily_limit": 120,
+            "default_daily_limit": 80,
+            "remaining": 83,
+            "calls_per_minute": 15,
+        }
+
+        response = self.client.get("/api/settings/rate-limits")
+
+        assert response.status_code == 200
+        assert response.json()["daily_calls"] == 37
+
+    @patch("login_api.api.get_rate_limit_usage")
+    @patch("login_api.api.set_daily_limit")
+    def test_updates_the_linkedin_daily_limit(self, set_limit, usage):
+        usage.return_value = {
+            "date": "2026-08-27",
+            "daily_calls": 80,
+            "daily_limit": 120,
+            "default_daily_limit": 80,
+            "remaining": 40,
+            "calls_per_minute": 15,
+        }
+
+        response = self.client.put(
+            "/api/settings/rate-limits",
+            data={"daily_limit": 120},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        set_limit.assert_called_once_with(120)
+        assert response.json()["daily_limit"] == 120
+
+    @patch("login_api.api.set_daily_limit")
+    def test_rejects_an_unsafe_rate_limit_value(self, set_limit):
+        set_limit.side_effect = ValueError(
+            "Daily call limit must be between 1 and 1000."
+        )
+
+        response = self.client.put(
+            "/api/settings/rate-limits",
+            data={"daily_limit": 1001},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "Daily call limit must be between 1 and 1000."
+        )
+
     @patch("login_api.api.login_manager")
     def test_starts_login(self, manager):
         manager.start.return_value = snapshot(LoginState.WAITING)

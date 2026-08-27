@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Send,
+  Settings,
   Users,
 } from "lucide-react";
 import { useState } from "react";
@@ -16,6 +17,7 @@ import { ConnectionImportPanel } from "@/components/connection-import-panel";
 import { LogsPanel } from "@/components/logs-panel";
 import { MessagesPanel } from "@/components/messages-panel";
 import { PeoplePanel } from "@/components/people-panel";
+import { SettingsPanel } from "@/components/settings-panel";
 import { UpdateNav } from "@/components/update-nav";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +34,7 @@ const sections = [
   { id: "people" as const, label: "People", icon: Users },
   { id: "messages" as const, label: "Messages", icon: MessageSquareText },
   { id: "logs" as const, label: "Logs", icon: Logs },
+  { id: "settings" as const, label: "Settings", icon: Settings },
 ];
 
 type DashboardSection = (typeof sections)[number]["id"];
@@ -41,6 +44,7 @@ export function DashboardShell() {
   const [section, setSection] = useState<DashboardSection>("send");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const sectionLabel = sections.find((item) => item.id === section)?.label;
 
   return (
     <div
@@ -176,11 +180,7 @@ export function DashboardShell() {
             <motion.div key={section} {...appear(reducedMotion)}>
               {section !== "messages" ? (
                 <h1 className="text-2xl font-normal tracking-tight">
-                  {section === "send"
-                    ? "Send requests"
-                    : section === "people"
-                      ? "People"
-                      : "Logs"}
+                  {sectionLabel}
                 </h1>
               ) : null}
               {section === "send" ? (
@@ -189,8 +189,10 @@ export function DashboardShell() {
                 <PeoplePanel />
               ) : section === "messages" ? (
                 <MessagesPanel />
-              ) : (
+              ) : section === "logs" ? (
                 <LogsPanel />
+              ) : (
+                <SettingsPanel />
               )}
             </motion.div>
           </AnimatePresence>

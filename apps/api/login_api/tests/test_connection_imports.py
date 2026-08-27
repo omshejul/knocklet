@@ -34,9 +34,10 @@ class FakeLinkedInClient:
             "state": self.connection_states.get(public_id, "not_connected"),
             "public_id": public_id,
             "url": f"https://www.linkedin.com/in/{public_id}/",
+            "urn_id": f"urn:li:fsd_profile:{public_id}-id",
         }
 
-    def add_connection(self, profile_public_id: str):
+    def add_connection(self, profile_public_id: str, profile_urn=None):
         self.public_ids.append(profile_public_id)
         return {"status": 201}
 

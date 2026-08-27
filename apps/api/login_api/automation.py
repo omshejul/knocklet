@@ -21,7 +21,7 @@ from .message_templates import (
 )
 
 ClientFactory = Callable[[], object]
-ACCEPTANCE_INTERVAL = timedelta(minutes=30)
+ACCEPTANCE_INTERVAL = timedelta(minutes=60)
 
 
 def default_client_factory():
@@ -316,7 +316,10 @@ def _send_invitation(work_item: WorkItem, client) -> None:
         checked_at=checked_at,
     )
     try:
-        result = client.add_connection(profile_public_id=person.public_id)
+        result = client.add_connection(
+            profile_public_id=person.public_id,
+            profile_urn=connection.get("urn_id") or None,
+        )
     except Exception as error:
         _needs_review(work_item, invitation, error)
         return
@@ -348,7 +351,8 @@ def _check_acceptances(work_item: WorkItem, client) -> None:
         _succeed(work_item)
         return
 
-    since_ms = int(invitations[0].sent_at.timestamp() * 1000)
+    cutoff = min(invitation.checked_at or invitation.sent_at for invitation in invitations)
+    since_ms = int(cutoff.timestamp() * 1000)
     recent_connections = client.get_recent_connections(max_results=1000, since_ms=since_ms)
     connected = {
         item.get("public_id", "").casefold(): item
@@ -730,8 +734,7 @@ def _send_message(work_item: WorkItem, client) -> None:
     message.status = Message.Status.SENDING
     message.save(update_fields=["status", "updated_at"])
     person = message.invitation.person
-    profile = client.get_profile(public_id=person.public_id)
-    recipient_urn = profile.get("entityUrn", "")
+    recipient_urn = client.get_profile_urn(person.public_id)
     if not recipient_urn:
         raise RuntimeError("LinkedIn recipient ID could not be found.")
     try:

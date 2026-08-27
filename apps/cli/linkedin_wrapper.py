@@ -64,6 +64,7 @@ class _RateLimiter:
         from commands.config import get_setting
         self._calls_per_minute = get_setting("rate_limits.calls_per_minute", 15)
         self._daily_limit = get_setting("rate_limits.daily_limit", 80)
+        self._daily_date = str(date.today())
         self._window: deque = deque()  # timestamps of recent calls
         self._lock = threading.Lock()
         self._daily_count = self._load_daily_count()
@@ -72,7 +73,7 @@ class _RateLimiter:
         if self.DAILY_FILE.exists():
             try:
                 data = json.loads(self.DAILY_FILE.read_text())
-                if data.get("date") == str(date.today()):
+                if data.get("date") == self._daily_date:
                     return data.get("count", 0)
             except (json.JSONDecodeError, OSError):
                 pass
@@ -83,14 +84,26 @@ class _RateLimiter:
         # Atomic write: temp file + rename to avoid corruption on concurrent access
         tmp = self.DAILY_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps({
-            "date": str(date.today()),
+            "date": self._daily_date,
             "count": self._daily_count,
         }))
         tmp.replace(self.DAILY_FILE)
 
+    def _refresh_state(self):
+        from commands.config import get_setting
+
+        self._calls_per_minute = get_setting("rate_limits.calls_per_minute", 15)
+        self._daily_limit = get_setting("rate_limits.daily_limit", 80)
+        today = str(date.today())
+        if today != self._daily_date:
+            self._daily_date = today
+            self._daily_count = self._load_daily_count()
+            self._window.clear()
+
     def acquire(self):
         """Block until it's safe to make a request. Raises if daily limit hit."""
         with self._lock:
+            self._refresh_state()
             if self._daily_count >= self._daily_limit:
                 raise RuntimeError(
                     f"Daily LinkedIn API limit reached ({self._daily_limit} calls). "
@@ -107,6 +120,9 @@ class _RateLimiter:
                 wait = self._window[0] - (now - 60)
                 if wait > 0:
                     time.sleep(wait + random.uniform(0.1, 0.5))
+                    now = time.time()
+                    while self._window and self._window[0] < now - 60:
+                        self._window.popleft()
 
             self._window.append(time.time())
             self._daily_count += 1
@@ -130,6 +146,7 @@ class LinkedinClient:
     def __init__(self, driver):
         self.driver = driver
         self._me_cache = None
+        self._sent_invitation_cache = None
         self._limiter = _RateLimiter()
 
     def _navigate(self, url: str):
@@ -203,6 +220,27 @@ class LinkedinClient:
             return {}
         return result["body"]
 
+    def _api_post(self, endpoint: str, payload: dict) -> dict:
+        """Execute a counted Voyager API POST request via the browser."""
+        self._limiter.acquire()
+        url = f"{VOYAGER_API}{endpoint}"
+        script = """
+        const resp = await fetch(arguments[0], {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-RestLi-Protocol-Version': '2.0.0',
+                'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
+            },
+            credentials: 'include',
+            body: JSON.stringify(arguments[1]),
+        });
+        return {status: resp.status};
+        """
+        return self.driver.execute_script(
+            f"return (async () => {{ {script} }})()", url, payload
+        )
+
     def get_user_profile(self, use_cache=True) -> dict:
         if self._me_cache and use_cache:
             return self._me_cache
@@ -231,6 +269,14 @@ class LinkedinClient:
             raw["followingState"] = sup_elements[0].get("followingState")
             raw["connections"] = sup_elements[0].get("connections")
         return _normalize_profile(raw)
+
+    def get_profile_urn(self, public_id: str) -> str:
+        """Resolve a public profile ID with one base profile request."""
+        data = self._api_get(
+            f"/identity/dash/profiles?q=memberIdentity&memberIdentity={public_id}"
+        )
+        elements = data.get("elements", [])
+        return elements[0].get("entityUrn", "") if elements else ""
 
     def get_profile_contact_info(self, public_id=None, urn_id=None) -> dict:
         identifier = public_id or urn_id
@@ -1120,23 +1166,10 @@ class LinkedinClient:
 
     def send_message(self, message_body: str, conversation_urn_id=None, recipients=None):
         if conversation_urn_id:
-            url = f"{VOYAGER_API}/messaging/conversations/{conversation_urn_id}/events"
             payload = {"eventCreate": {"value": {"com.linkedin.voyager.messaging.create.MessageCreate": {"body": message_body}}}}
-            script = """
-            const resp = await fetch(arguments[0], {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-RestLi-Protocol-Version': '2.0.0',
-                    'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
-                },
-                credentials: 'include',
-                body: JSON.stringify(arguments[1]),
-            });
-            return {status: resp.status};
-            """
-            return self.driver.execute_script(
-                f"return (async () => {{ {script} }})()", url, payload
+            return self._api_post(
+                f"/messaging/conversations/{conversation_urn_id}/events",
+                payload,
             )
 
         if not recipients or len(recipients) != 1:
@@ -1198,6 +1231,7 @@ class LinkedinClient:
         else:
             raise RuntimeError("LinkedIn did not enable the Send button.")
 
+        self._limiter.acquire()
         clicked = self.driver.execute_script("""
         const send = [...document.querySelectorAll('button')]
             .find(button => button.innerText.trim() === 'Send');
@@ -1286,6 +1320,11 @@ class LinkedinClient:
 
     def get_sent_invitation_public_ids(self, max_results=1000) -> set[str]:
         """Return public IDs with a pending sent connection invitation."""
+        cache = getattr(self, "_sent_invitation_cache", None)
+        now = time.monotonic()
+        if max_results == 1000 and cache and now - cache[0] < 60:
+            return set(cache[1])
+
         public_ids = set()
         start = 0
         page_size = 100
@@ -1298,7 +1337,9 @@ class LinkedinClient:
                 "&invitationType=CONNECTION&q=invitationType"
             )
             root = data.get("data", data)
-            elements = root.get("elements") or root.get("*elements")
+            elements = root.get("elements")
+            if elements is None:
+                elements = root.get("*elements")
             if elements is None and start == 0:
                 data = self._api_get(
                     "/relationships/invitationViews"
@@ -1306,7 +1347,9 @@ class LinkedinClient:
                     "&includeInsights=true&q=sentInvitation"
                 )
                 root = data.get("data", data)
-                elements = root.get("elements") or root.get("*elements")
+                elements = root.get("elements")
+                if elements is None:
+                    elements = root.get("*elements")
             if elements is None:
                 raise RuntimeError("Pending invitations could not be checked.")
 
@@ -1343,6 +1386,8 @@ class LinkedinClient:
             if len(elements) < count or (isinstance(total, int) and start >= total):
                 break
 
+        if max_results == 1000:
+            self._sent_invitation_cache = (time.monotonic(), set(public_ids))
         return public_ids
 
     def get_connection_state(self, public_profile_id: str, name: str = "") -> dict:
@@ -1389,7 +1434,12 @@ class LinkedinClient:
             )
 
         if profile is None:
-            return {"state": "unknown", "public_id": "", "url": ""}
+            return {
+                "state": "unknown",
+                "public_id": "",
+                "url": "",
+                "urn_id": "",
+            }
 
         degree = profile.get("connection_degree", "").casefold()
         degree_match = re.search(r"(?:^|\W)(1st|2nd|3rd)(?:\W|$)", degree)
@@ -1402,39 +1452,29 @@ class LinkedinClient:
             "state": state,
             "public_id": profile.get("public_id", ""),
             "url": profile.get("url", ""),
+            "urn_id": profile.get("urn_id", ""),
         }
 
     def add_connection(self, profile_public_id: str, message="", profile_urn=None):
         import base64
         import os
-        # Resolve public ID to profile URN
-        profile = self.get_profile(public_id=profile_public_id)
-        urn = profile.get("entityUrn", "")
+        urn = profile_urn or self.get_profile_urn(profile_public_id)
         if not urn:
             return {"status": 404}
-        url = f"{VOYAGER_API}/relationships/dash/memberRelationships?action=verifyQuotaAndCreate"
         tracking_id = base64.b64encode(os.urandom(16)).decode()
         payload = {
             "inviteeProfileUrn": urn,
             "trackingId": tracking_id,
         }
 
-        script = """
-        const resp = await fetch(arguments[0], {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-RestLi-Protocol-Version': '2.0.0',
-                'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
-            },
-            credentials: 'include',
-            body: JSON.stringify(arguments[1]),
-        });
-        return {status: resp.status};
-        """
-        return self.driver.execute_script(
-            f"return (async () => {{ {script} }})()", url, payload
+        result = self._api_post(
+            "/relationships/dash/memberRelationships?action=verifyQuotaAndCreate",
+            payload,
         )
+        cache = getattr(self, "_sent_invitation_cache", None)
+        if 200 <= int(result.get("status", 0)) < 300 and cache:
+            cache[1].add(profile_public_id.casefold())
+        return result
 
     def remove_connection(self, public_profile_id: str):
         """Remove a connection."""

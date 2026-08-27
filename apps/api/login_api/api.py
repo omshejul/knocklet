@@ -6,6 +6,8 @@ from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
 
+from commands.config import get_rate_limit_usage, set_daily_limit
+
 from .activity import list_logs
 from .automation import (
     acceptance_request_snapshot,
@@ -35,6 +37,19 @@ from .models import Person, WorkItem
 
 class HealthOut(Schema):
     status: Literal["ok"]
+
+
+class RateLimitSettingsIn(Schema):
+    daily_limit: int
+
+
+class RateLimitSettingsOut(Schema):
+    date: str
+    daily_calls: int
+    daily_limit: int
+    default_daily_limit: int
+    remaining: int
+    calls_per_minute: int
 
 
 class LoginStatusOut(Schema):
@@ -213,6 +228,31 @@ connection_imports = ConnectionImportStore()
 @api.get("/health", response=HealthOut)
 def health(request):
     return {"status": "ok"}
+
+
+@api.get(
+    "/settings/rate-limits",
+    response={200: RateLimitSettingsOut, 500: ErrorOut},
+)
+def rate_limit_settings(request):
+    try:
+        return get_rate_limit_usage()
+    except RuntimeError as error:
+        return Status(500, {"detail": str(error)})
+
+
+@api.put(
+    "/settings/rate-limits",
+    response={200: RateLimitSettingsOut, 400: ErrorOut, 500: ErrorOut},
+)
+def update_rate_limit_settings(request, payload: RateLimitSettingsIn):
+    try:
+        set_daily_limit(payload.daily_limit)
+        return get_rate_limit_usage()
+    except ValueError as error:
+        return Status(400, {"detail": str(error)})
+    except (OSError, RuntimeError) as error:
+        return Status(500, {"detail": str(error)})
 
 
 @api.get("/auth/status", response=LoginStatusOut)
