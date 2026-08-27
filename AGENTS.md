@@ -28,3 +28,10 @@ DO: Remove a known prefix with regex.
 DON’T: Parse HTML, JSON, addresses, bank statements, or human-written descriptions with regex.
 DON’T: Use one large regex containing many optional groups and edge cases.
 Use this file `~/resource_use` to log what you're using and remove that after use. If you see a resource you want is being used by someone else, then wait or use something else.
+
+## Project context
+
+- Architecture: Read `docs/architecture.md` before changing data ownership, automation, imports, messages, or Electron boundaries.
+- Deployment: Read `docs/deployment.md` before building, signing, notarizing, publishing, or changing OTA updates.
+- Debugging: Read `docs/debugging.md` when login, Chrome, the worker, SQLite state, packaging, or LinkedIn behavior fails.
+- Secrets: Keep local values in ignored `.env` files and Apple credentials in the macOS Keychain. Commit variable names and safe defaults only to `.env.example`.
