@@ -1,6 +1,7 @@
 from typing import Literal
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q
 from ninja import File, NinjaAPI, Schema, Status
 from ninja.files import UploadedFile
@@ -10,6 +11,7 @@ from .automation import (
     acceptance_request_snapshot,
     enqueue_acceptance_check,
     queue_messages_for_people,
+    rerender_queued_message_for_person,
     resolve_needs_review_for_person,
     retry_invitation_for_person,
     work_item_status,
@@ -285,8 +287,9 @@ def queue_person_messages(request, payload: PersonMessageIn):
 
 @api.patch(
     "/people/{person_id}",
-    response={200: PersonFirstNameOut, 400: ErrorOut, 404: ErrorOut},
+    response={200: PersonFirstNameOut, 400: ErrorOut, 404: ErrorOut, 409: ErrorOut},
 )
+@transaction.atomic
 def update_person_first_name(request, person_id: str, payload: PersonFirstNameIn):
     try:
         person = Person.objects.get(pk=person_id)
@@ -300,6 +303,10 @@ def update_person_first_name(request, person_id: str, payload: PersonFirstNameIn
         return Status(400, {"detail": "First name must be 255 characters or fewer."})
 
     person.first_name = first_name
+    try:
+        rerender_queued_message_for_person(person)
+    except ValueError as error:
+        return Status(409, {"detail": str(error)})
     person.save(update_fields=["first_name", "updated_at"])
     return {"id": str(person.id), "first_name": person.first_name}
 

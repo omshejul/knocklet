@@ -439,6 +439,42 @@ def _queue_message_if_enabled(invitation: Invitation) -> Message | None:
     return message
 
 
+def rerender_queued_message_for_person(person: Person) -> Message | None:
+    message = (
+        Message.objects.select_for_update()
+        .select_related("template")
+        .filter(invitation__person=person, status=Message.Status.QUEUED)
+        .first()
+    )
+    if message is None:
+        return None
+
+    source_import = (
+        ConnectionImport.objects.filter(
+            requests__invitation_id=message.invitation_id,
+            auto_message_enabled=True,
+        )
+        .select_related("message_template")
+        .order_by("-created_at")
+        .first()
+    )
+    template_body = source_import.message_template_body if source_import else ""
+    if not template_body and source_import and source_import.message_template:
+        template_body = source_import.message_template.body
+    if not template_body and message.template:
+        template_body = message.template.body
+    if not template_body:
+        raise ValueError("Queued message has no template and could not be updated.")
+
+    message.body = render_template_body(
+        template_body,
+        person.name,
+        person.first_name,
+    )
+    message.save(update_fields=["body", "updated_at"])
+    return message
+
+
 @transaction.atomic
 def queue_messages_for_people(person_ids: list[str]) -> int:
     selected_ids = set(person_ids)
