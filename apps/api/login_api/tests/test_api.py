@@ -310,6 +310,46 @@ class LoginApiTests(TestCase):
         assert Message.objects.filter(invitation=invitation).count() == 1
         assert WorkItem.objects.filter(message=message).count() == 1
 
+    def test_retry_rebuilds_a_message_with_an_unresolved_field(self):
+        person = Person.objects.create(name="Ada Lovelace", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
+        template = MessageTemplate.objects.create(
+            body="Hello {first_name}",
+            is_active=True,
+        )
+        message = Message.objects.create(
+            invitation=invitation,
+            body="Hello {unknown_name}",
+            status=Message.Status.FAILED,
+            error="Message contains an unresolved field and was not sent.",
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.SEND_MESSAGE,
+            status=WorkItem.Status.FAILED,
+            invitation=invitation,
+            message=message,
+            due_at=timezone.now(),
+            error=message.error,
+            completed_at=timezone.now(),
+            dedupe_key=f"message:{message.id}",
+        )
+
+        response = self.client.post(
+            "/api/people/messages",
+            data={"person_ids": [str(person.id)]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 202
+        message.refresh_from_db()
+        assert message.body == "Hello Ada"
+        assert message.template == template
+        assert message.status == Message.Status.QUEUED
+
     def test_rejects_a_message_for_a_person_who_is_not_accepted(self):
         person = Person.objects.create(name="Ada Lovelace", public_id="ada")
         Invitation.objects.create(person=person, status=Invitation.Status.PENDING)

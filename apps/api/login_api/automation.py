@@ -429,8 +429,17 @@ def queue_messages_for_people(person_ids: list[str]) -> int:
             raise ValueError("A selected person already has a message in progress or sent.")
         pending.append((invitation, message))
 
+    invalid_message_ids = set()
+    for _, message in pending:
+        if message is None:
+            continue
+        try:
+            validate_rendered_message_body(message.body)
+        except ValueError:
+            invalid_message_ids.add(message.id)
+
     template = None
-    if any(message is None for _, message in pending):
+    if any(message is None for _, message in pending) or invalid_message_ids:
         template = MessageTemplate.objects.select_for_update().filter(is_active=True).first()
         if template is None:
             raise ValueError("Save a message template before sending messages.")
@@ -455,19 +464,22 @@ def queue_messages_for_people(person_ids: list[str]) -> int:
             )
             continue
 
+        update_fields = [
+            "status",
+            "error",
+            "provider_status",
+            "queued_at",
+            "updated_at",
+        ]
+        if message.id in invalid_message_ids:
+            message.template = template
+            message.body = render_template_body(template.body, invitation.person.name)
+            update_fields.extend(["template", "body"])
         message.status = Message.Status.QUEUED
         message.error = ""
         message.provider_status = None
         message.queued_at = queued_at
-        message.save(
-            update_fields=[
-                "status",
-                "error",
-                "provider_status",
-                "queued_at",
-                "updated_at",
-            ]
-        )
+        message.save(update_fields=update_fields)
         work_item = message.work_items.order_by("-created_at").first()
         if work_item is None:
             WorkItem.objects.create(
