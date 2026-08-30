@@ -94,7 +94,7 @@ artifacts+=("$latest_path")
 gh release create "$tag" "${artifacts[@]}" \
   --target "$(git rev-parse HEAD)" \
   --title "Knocklet ${version}" \
-  --notes "Fixes LinkedIn invitation and message delivery for profiles returned by search, and improves endpoint fallback safety." \
+  --notes "Fixes acceptance checks for existing pending invitations and reports browser request failures clearly." \
   --latest
 
 published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
