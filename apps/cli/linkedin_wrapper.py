@@ -214,6 +214,8 @@ class LinkedinClient:
         """
         result = self.driver.execute_script(f"return (async () => {{ {script} }})()", url)
 
+        if not isinstance(result, dict):
+            raise RuntimeError(f"LinkedIn browser request failed: {result}")
         if result["status"] != 200:
             if raise_for_status:
                 raise LinkedinAPIError(int(result["status"]))

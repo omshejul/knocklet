@@ -15,6 +15,28 @@ class GoneDriver:
         return {"status": 410, "body": {"status": 410}}
 
 
+class ExceptionDetails:
+    def __str__(self):
+        return "fetch failed"
+
+
+class FailedScriptDriver:
+    def execute_script(self, script, url):
+        return ExceptionDetails()
+
+
+def test_api_get_reports_browser_javascript_failure():
+    client = object.__new__(LinkedinClient)
+    client.driver = FailedScriptDriver()
+    client._limiter = FakeLimiter()
+
+    with pytest.raises(
+        RuntimeError,
+        match="LinkedIn browser request failed: fetch failed",
+    ):
+        client._api_get("/relationships/dash/connections")
+
+
 def test_reads_pending_sent_invitation_public_ids():
     client = object.__new__(LinkedinClient)
     client._api_get = lambda endpoint, **kwargs: {
