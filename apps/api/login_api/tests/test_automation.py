@@ -556,6 +556,26 @@ class AutomationTests(TransactionTestCase):
 
         assert client.since_ms == [int(checked_at.timestamp() * 1000)]
 
+    def test_acceptance_check_includes_pending_invitation_without_sent_at(self):
+        client = AcceptedMessagingClient()
+        checked_at = timezone.now() - timedelta(hours=1)
+        person = Person.objects.create(name="Ada", public_id="ada")
+        invitation = Invitation.objects.create(
+            person=person,
+            status=Invitation.Status.PENDING,
+            checked_at=checked_at,
+        )
+        WorkItem.objects.create(
+            kind=WorkItem.Kind.CHECK_ACCEPTANCES,
+            due_at=timezone.now(),
+        )
+
+        run_due_work(lambda: client)
+
+        invitation.refresh_from_db()
+        assert client.since_ms == [int(checked_at.timestamp() * 1000)]
+        assert invitation.status == Invitation.Status.ACCEPTED
+
     @staticmethod
     def _person_id():
         return Person.objects.create(name="Ada", public_id="ada").id
