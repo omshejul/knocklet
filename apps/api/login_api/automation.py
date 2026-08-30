@@ -399,14 +399,17 @@ def _send_invitation(work_item: WorkItem, client) -> None:
 def _check_acceptances(work_item: WorkItem, client) -> None:
     invitations = list(
         Invitation.objects.select_related("person")
-        .filter(status=Invitation.Status.PENDING, sent_at__isnull=False)
+        .filter(status=Invitation.Status.PENDING)
         .order_by("sent_at")
     )
     if not invitations:
         _succeed(work_item)
         return
 
-    cutoff = min(invitation.checked_at or invitation.sent_at for invitation in invitations)
+    cutoff = min(
+        invitation.checked_at or invitation.sent_at or invitation.created_at
+        for invitation in invitations
+    )
     since_ms = int(cutoff.timestamp() * 1000)
     recent_connections = client.get_recent_connections(max_results=1000, since_ms=since_ms)
     connected = {
