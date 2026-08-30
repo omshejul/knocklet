@@ -64,7 +64,7 @@ fi
 codesign --force --timestamp --sign "$signing_identity" "$dmg_path"
 codesign --verify --strict --verbose=2 "$dmg_path"
 
-ASC_UPLOAD_TIMEOUT=10m asc notarization submit \
+ASC_UPLOAD_TIMEOUT=30m asc notarization submit \
   --file "$dmg_path" \
   --wait \
   --timeout 1h \
